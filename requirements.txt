@@ -1,0 +1,9 @@
+openai>=1.12.0
+whisper>=1.0.0
+tiktoken>=0.5.0
+pydub>=0.25.1
+requests>=2.31.0
+pytest>=7.4.0
+python-dotenv>=1.0.0
+pyyaml>=6.0.1
+structlog>=24.1.0 

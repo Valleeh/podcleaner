@@ -1,0 +1,10 @@
+venv
+_pycache_
+.pytest_cache
+secrets.json
+podcasts
+debug_output
+
+*.pyc
+__pycache__/
+.env

@@ -1,0 +1,12 @@
+llm:
+  model_name: "gpt-4o-mini"
+  temperature: 0.1
+  chunk_size: 600
+  max_attempts: 3
+
+audio:
+  min_duration: 5.0
+  max_gap: 20.0
+  download_dir: "podcasts"
+
+log_level: "INFO" 
