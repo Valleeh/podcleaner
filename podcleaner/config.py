@@ -141,8 +141,8 @@ def load_config(config_path: str = "config.yaml") -> Config:
         "log_level": "INFO"
     }
     
-    # Override with file configuration if exists
-    if os.path.exists(config_path):
+    # Override with file configuration if exists and config_path is not None
+    if config_path is not None and os.path.exists(config_path):
         with open(config_path) as f:
             file_config = yaml.safe_load(f)
             if file_config:

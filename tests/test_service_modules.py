@@ -7,15 +7,14 @@ import sys
 import json
 from unittest.mock import patch, MagicMock, mock_open
 
-from podcleaner.run_web_service import main as web_main
-from podcleaner.run_transcriber_service import main as transcriber_main
-from podcleaner.run_ad_detector_service import main as ad_detector_main
-from podcleaner.run_audio_processor_service import main as audio_processor_main
+# Instead of importing from the individual service runners, import from run_service
+from podcleaner.run_service import main as service_main
 from podcleaner.services.message_broker import Message, Topics
 from podcleaner.services.transcriber import Transcriber
 from podcleaner.services.ad_detector import AdDetector
 from podcleaner.services.audio_processor import AudioProcessor
 from podcleaner.services.downloader import PodcastDownloader
+from podcleaner.services.web_server import WebServer
 
 
 @pytest.fixture
@@ -25,25 +24,33 @@ def mock_signal():
         yield mock
 
 @pytest.fixture
-def mock_config():
-    """Mock configuration."""
+def mock_config(monkeypatch):
+    """Mock configuration for tests."""
+    # Create a mock Config object
     config_mock = MagicMock()
-    config_mock.message_broker.mqtt.host = "test-host"
+    
+    # Properly define attributes accessed in run_service.py
+    config_mock.message_broker = MagicMock()
+    config_mock.message_broker.mqtt = MagicMock()
+    config_mock.message_broker.mqtt.host = "localhost"
     config_mock.message_broker.mqtt.port = 1883
     config_mock.message_broker.mqtt.username = None
     config_mock.message_broker.mqtt.password = None
-    config_mock.web_server.host = "0.0.0.0"
-    config_mock.web_server.port = 8080
-    config_mock.web_server.use_https = False
-    config_mock.log_level = "INFO"
-    config_mock.audio.download_dir = "/tmp"
-    config_mock.llm.model_name = "test-model"
-    config_mock.llm.api_key = "test-key"
-    config_mock.audio.min_duration = 1.0
-    config_mock.audio.max_gap = 0.5
     
-    with patch('podcleaner.config.load_config', return_value=config_mock):
-        yield config_mock
+    # Define web_server attribute that's accessed as config.web in run_service.py
+    config_mock.web = MagicMock()
+    config_mock.web.host = "localhost"
+    config_mock.web.port = 8080
+    
+    config_mock.log_level = "INFO"
+    
+    # Add mock for load_config function
+    def mock_load_config(config_path=None):
+        return config_mock
+    
+    monkeypatch.setattr('podcleaner.run_service.load_config', mock_load_config)
+    
+    return config_mock
 
 @pytest.fixture
 def mock_mqtt_broker_class():
@@ -111,7 +118,8 @@ def test_web_service_init(
     mock_sleep
 ):
     """Test web service initialization."""
-    with patch('sys.argv', ['run_web_service.py']):
+    # Mock the command-line arguments for the web service
+    with patch('sys.argv', ['run_service.py', '--service', 'web']):
         # Create mocks for all services
         mqtt_mock = MagicMock()
         mqtt_mock.start = MagicMock()
@@ -123,41 +131,65 @@ def test_web_service_init(
         downloader_mock = MagicMock()
         downloader_mock.start = MagicMock()
         
-        with patch('podcleaner.run_web_service.MQTTMessageBroker', return_value=mqtt_mock):
-            with patch('podcleaner.run_web_service.WebServer', return_value=web_server_mock):
-                with patch('podcleaner.run_web_service.PodcastDownloader', return_value=downloader_mock):
-                    # Since we're using the mock_sleep fixture, we don't need to expect KeyboardInterrupt here
-                    web_main()
+        # Create a mock args object with needed attributes
+        mock_args = MagicMock()
+        mock_args.service = "web"
+        mock_args.config = None  # This ensures config_path is None but it's handled
+        mock_args.mqtt_host = None
+        mock_args.mqtt_port = None
+        mock_args.mqtt_username = None
+        mock_args.mqtt_password = None
+        mock_args.log_level = "INFO"  # Add a proper log level value
+        
+        with patch('podcleaner.run_service.parse_args', return_value=mock_args):
+            with patch('podcleaner.run_service.MQTTMessageBroker', return_value=mqtt_mock):
+                with patch('podcleaner.run_service.WebServer', return_value=web_server_mock):
+                    with patch('podcleaner.run_service.PodcastDownloader', return_value=downloader_mock):
+                        with patch('sys.exit') as mock_exit:  # Prevent actual system exit
+                            # Since we're using the mock_sleep fixture, we don't need to expect KeyboardInterrupt here
+                            service_main()
         
         # Check that services were started
         mqtt_mock.start.assert_called_once()
         web_server_mock.start.assert_called_once()
-        downloader_mock.start.assert_called_once()
-
+        # In run_service.py, the downloader is only started if service_name is 'downloader' or 'all'
+        # So we shouldn't check for this call anymore
+        
 def test_transcriber_service_init(
     mock_config, 
     mock_signal,
     mock_sleep
 ):
     """Test transcriber service initialization."""
-    with patch('sys.argv', ['run_transcriber_service.py']):
-        # Create a special mock of MQTTMessageBroker that won't try to connect
+    # Mock the command-line arguments for the transcriber service
+    with patch('sys.argv', ['run_service.py', '--service', 'transcriber']):
+        # Create mocks for all services
         mqtt_mock = MagicMock()
         mqtt_mock.start = MagicMock()
-        mqtt_mock.stop = MagicMock()
-        
-        # Create a special mock of Transcriber
+
         transcriber_mock = MagicMock()
         transcriber_mock.start = MagicMock()
-        transcriber_mock.stop = MagicMock()
-        
-        with patch('podcleaner.run_transcriber_service.MQTTMessageBroker', return_value=mqtt_mock):
-            with patch('podcleaner.run_transcriber_service.Transcriber', return_value=transcriber_mock):
-                # Since we're using the mock_sleep fixture, we don't need to expect KeyboardInterrupt here
-                transcriber_main()
-        
-        # Check that transcriber was initialized and started with correct parameters
-        transcriber_mock.start.assert_called_once()
+
+        # Create a mock args object with needed attributes
+        mock_args = MagicMock()
+        mock_args.service = "transcriber"
+        mock_args.config = None
+        mock_args.mqtt_host = None
+        mock_args.mqtt_port = None
+        mock_args.mqtt_username = None
+        mock_args.mqtt_password = None
+        mock_args.log_level = "INFO"  # Add a proper log level value
+
+        with patch('podcleaner.run_service.parse_args', return_value=mock_args):
+            with patch('podcleaner.run_service.MQTTMessageBroker', return_value=mqtt_mock):
+                with patch('podcleaner.run_service.Transcriber', return_value=transcriber_mock):
+                    with patch('sys.exit') as mock_exit:  # Prevent actual system exit
+                        # Since we're using the mock_sleep fixture, we don't need to expect KeyboardInterrupt here
+                        service_main()
+
+    # Check that both the broker and transcriber were started
+    mqtt_mock.start.assert_called_once()
+    transcriber_mock.start.assert_called_once()
 
 def test_ad_detector_service_init(
     mock_config, 
@@ -165,23 +197,35 @@ def test_ad_detector_service_init(
     mock_sleep
 ):
     """Test ad detector service initialization."""
-    with patch('sys.argv', ['run_ad_detector_service.py']):
-        # Create mocks for services
+    # Mock the command-line arguments for the ad detector service
+    with patch('sys.argv', ['run_service.py', '--service', 'ad-detector']):
+        # Create mocks for all services
         mqtt_mock = MagicMock()
         mqtt_mock.start = MagicMock()
-        mqtt_mock.stop = MagicMock()
-        
+
         ad_detector_mock = MagicMock()
         ad_detector_mock.start = MagicMock()
-        
-        with patch('podcleaner.run_ad_detector_service.MQTTMessageBroker', return_value=mqtt_mock):
-            with patch('podcleaner.run_ad_detector_service.AdDetector', return_value=ad_detector_mock):
-                # Since we're using the mock_sleep fixture, we don't need to expect KeyboardInterrupt here
-                ad_detector_main()
-        
-        # Check that services were started
-        mqtt_mock.start.assert_called_once()
-        ad_detector_mock.start.assert_called_once()
+
+        # Create a mock args object with needed attributes
+        mock_args = MagicMock()
+        mock_args.service = "ad-detector"
+        mock_args.config = None
+        mock_args.mqtt_host = None
+        mock_args.mqtt_port = None
+        mock_args.mqtt_username = None
+        mock_args.mqtt_password = None
+        mock_args.log_level = "INFO"  # Add a proper log level value
+
+        with patch('podcleaner.run_service.parse_args', return_value=mock_args):
+            with patch('podcleaner.run_service.MQTTMessageBroker', return_value=mqtt_mock):
+                with patch('podcleaner.run_service.AdDetector', return_value=ad_detector_mock):
+                    with patch('sys.exit') as mock_exit:  # Prevent actual system exit
+                        # Since we're using the mock_sleep fixture, we don't need to expect KeyboardInterrupt here
+                        service_main()
+
+    # Check that both the broker and ad detector were started
+    mqtt_mock.start.assert_called_once()
+    ad_detector_mock.start.assert_called_once()
 
 def test_audio_processor_service_init(
     mock_config, 
@@ -189,19 +233,31 @@ def test_audio_processor_service_init(
     mock_sleep
 ):
     """Test audio processor service initialization."""
-    with patch('sys.argv', ['run_audio_processor_service.py']):
-        # Create mocks for services
+    # Mock the command-line arguments for the audio processor service
+    with patch('sys.argv', ['run_service.py', '--service', 'audio-processor']):
+        # Create mocks for all services
         mqtt_mock = MagicMock()
         mqtt_mock.start = MagicMock()
-        mqtt_mock.stop = MagicMock()
-        
+
         audio_processor_mock = MagicMock()
         audio_processor_mock.start = MagicMock()
-        
-        with patch('podcleaner.run_audio_processor_service.MQTTMessageBroker', return_value=mqtt_mock):
-            with patch('podcleaner.run_audio_processor_service.AudioProcessor', return_value=audio_processor_mock):
-                # Since we're using the mock_sleep fixture, we don't need to expect KeyboardInterrupt here
-                audio_processor_main()
+
+        # Create a mock args object with needed attributes
+        mock_args = MagicMock()
+        mock_args.service = "audio-processor"
+        mock_args.config = None
+        mock_args.mqtt_host = None
+        mock_args.mqtt_port = None
+        mock_args.mqtt_username = None
+        mock_args.mqtt_password = None
+        mock_args.log_level = "INFO"  # Add a proper log level value
+
+        with patch('podcleaner.run_service.parse_args', return_value=mock_args):
+            with patch('podcleaner.run_service.MQTTMessageBroker', return_value=mqtt_mock):
+                with patch('podcleaner.run_service.AudioProcessor', return_value=audio_processor_mock):
+                    with patch('sys.exit') as mock_exit:  # Prevent actual system exit
+                        # Since we're using the mock_sleep fixture, we don't need to expect KeyboardInterrupt here
+                        service_main()
         
         # Check that services were started
         mqtt_mock.start.assert_called_once()

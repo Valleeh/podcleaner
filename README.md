@@ -167,9 +167,47 @@ Configuration options can be set using environment variables or a `.env` file:
 
 ## Troubleshooting
 
-- **Services not connecting to MQTT**: Ensure the MQTT broker is running and accessible.
-- **Audio processing errors**: Verify FFmpeg is installed and in the system PATH.
-- **Transcription errors**: Check the OpenAI API key and ensure the model is available.
-- **Files not being processed**: Check the `debug_output` directory for tracking processed files.
+- **Service not starting**: Check Docker logs with `docker-compose logs <service-name>` to identify issues.
+- **Podcast processing stuck**: Verify MQTT broker is running and accessible.
+- **Detecting already processed files**: Check the `debug_output` directory for files tracking processed URLs and file paths.
 
-For more information, see the logs of each service. 
+## Testing
+
+The codebase includes comprehensive tests to ensure reliability. Tests can be run as follows:
+
+### Setting up a test environment
+
+```bash
+# Create and activate a virtual environment
+python -m venv test_env
+source test_env/bin/activate  # On Windows: test_env\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+pip install pytest pytest-cov
+```
+
+### Running tests
+
+```bash
+# Run all tests
+python -m pytest
+
+# Run tests with verbose output
+python -m pytest -v
+
+# Run tests for a specific module
+python -m pytest tests/test_service_modules.py
+
+# Run tests with coverage report
+python -m pytest --cov=podcleaner
+```
+
+### Understanding test organization
+
+- `test_service_modules.py`: Tests for service initialization and duplicate prevention
+- `test_ad_detector.py`: Tests for advertisement detection functionality
+- `test_message_broker.py`: Tests for MQTT communication
+- `test_integration.py`: End-to-end workflow tests
+
+## License 

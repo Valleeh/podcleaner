@@ -3,28 +3,33 @@
 import sys
 import argparse
 from typing import List
+import os
+import signal
+import time
+import importlib
+
 from .config import load_config
 from .logging import configure_logging, get_logger
-from .orchestrator import PodcastCleaner
-from .services import (
-    InMemoryMessageBroker,
-    WebServer,
-    PodcastDownloader
-)
+from .services.message_broker import MQTTMessageBroker
+from .services.ad_detector import AdDetector
+from .services.transcriber import Transcriber
+from .services.audio_processor import AudioProcessor
+from .services.downloader import PodcastDownloader
+from .services.web_server import WebServer
 
 logger = get_logger(__name__)
 
 def parse_args(args: List[str]) -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="Download and clean advertisements from podcasts."
+        description="PodCleaner - Download and clean advertisements from podcasts."
     )
     
     # Create subparsers for different modes
     subparsers = parser.add_subparsers(dest="mode", help="Operation mode")
     
-    # Process parser (default mode)
-    process_parser = subparsers.add_parser("process", help="Process a podcast")
+    # Process mode parser
+    process_parser = subparsers.add_parser("process", help="Process a podcast URL")
     process_parser.add_argument(
         "url",
         help="URL of the podcast to process"
@@ -47,28 +52,48 @@ def parse_args(args: List[str]) -> argparse.Namespace:
         help="Keep intermediate files after processing"
     )
     
-    # Server mode parser
-    server_parser = subparsers.add_parser("server", help="Run the web server")
-    server_parser.add_argument(
+    # Service mode parser
+    service_parser = subparsers.add_parser("service", help="Run a microservice")
+    service_parser.add_argument(
+        "--service", "-s",
+        required=True,
+        choices=["web", "transcriber", "ad-detector", "audio-processor", "downloader", "all"],
+        help="Service to run"
+    )
+    
+    service_parser.add_argument(
+        "--mqtt-host",
+        default=None,
+        help="MQTT broker host"
+    )
+    
+    service_parser.add_argument(
+        "--mqtt-port",
+        type=int,
+        default=None,
+        help="MQTT broker port"
+    )
+    
+    service_parser.add_argument(
+        "--web-host",
+        default=None,
+        help="Web server host (for web service)"
+    )
+    
+    service_parser.add_argument(
+        "--web-port",
+        type=int,
+        default=None,
+        help="Web server port (for web service)"
+    )
+    
+    service_parser.add_argument(
         "-c", "--config",
         default="config.yaml",
         help="Path to configuration file"
     )
     
-    server_parser.add_argument(
-        "--host",
-        default="localhost",
-        help="Host to bind the server to"
-    )
-    
-    server_parser.add_argument(
-        "--port",
-        type=int,
-        default=8080,
-        help="Port to bind the server to"
-    )
-    
-    # Debug flag for both modes
+    # Debug flag for all modes
     parser.add_argument(
         "--debug",
         action="store_true",
@@ -82,9 +107,10 @@ def parse_args(args: List[str]) -> argparse.Namespace:
     
     parsed_args = parser.parse_args(args)
     
-    # If no mode is specified, default to process
+    # If no mode is specified, default to help
     if not parsed_args.mode:
-        parsed_args.mode = "process"
+        parser.print_help()
+        sys.exit(1)
     
     return parsed_args
 
@@ -98,7 +124,7 @@ def main(args: List[str] = None) -> int:
         parsed_args = parse_args(args)
         
         # Load configuration
-        config = load_config(parsed_args.config)
+        config = load_config(parsed_args.config if hasattr(parsed_args, 'config') else None)
         
         # Configure logging
         if parsed_args.debug:
@@ -107,47 +133,101 @@ def main(args: List[str] = None) -> int:
         
         # Handle different modes
         if parsed_args.mode == "process":
-            # Use the monolithic orchestrator
-            cleaner = PodcastCleaner(config)
-            output_file = cleaner.process_podcast(
-                url=parsed_args.url,
-                output_file=parsed_args.output,
-                keep_intermediate=parsed_args.keep_intermediate
+            # Create a message broker for processing a single URL
+            broker = MQTTMessageBroker(
+                broker_host=config.message_broker.mqtt.host,
+                broker_port=config.message_broker.mqtt.port,
+                username=config.message_broker.mqtt.username,
+                password=config.message_broker.mqtt.password,
+                client_id="podcleaner-cli"
             )
             
-            logger.info("processing_complete", output=output_file)
-            return 0
-        
-        elif parsed_args.mode == "server":
-            # Run the web server with in-memory broker
-            broker = InMemoryMessageBroker()
+            # Start the broker
             broker.start()
             
-            # Create and start the web server
-            web_server = WebServer(
-                host=parsed_args.host,
-                port=parsed_args.port,
-                message_broker=broker
-            )
-            web_server.start()
-            
-            # Create and start the downloader service
-            downloader = PodcastDownloader(config.audio, broker)
+            # Create the downloader service to process the URL
+            downloader = PodcastDownloader(config=config.audio, message_broker=broker)
             downloader.start()
             
-            logger.info("server_started", host=parsed_args.host, port=parsed_args.port)
+            # Process the URL and wait for completion
+            from .services.message_broker import Message, Topics
             
-            # Keep the main thread alive
+            # Create a flag to track completion
+            processing_complete = False
+            output_file = None
+            
+            # Define callback handlers
+            def handle_audio_complete(message):
+                nonlocal processing_complete, output_file
+                logger.info("processing_complete", 
+                           input=message.data.get("input_path", "unknown"),
+                           output=message.data.get("output_path", "unknown"))
+                output_file = message.data.get("output_path")
+                processing_complete = True
+            
+            def handle_failure(message):
+                nonlocal processing_complete
+                logger.error("processing_failed",
+                            error=message.data.get("error", "unknown error"))
+                processing_complete = True
+            
+            # Subscribe to completion and failure topics
+            broker.subscribe(Topics.AUDIO_PROCESSING_COMPLETE, handle_audio_complete)
+            broker.subscribe(Topics.DOWNLOAD_FAILED, handle_failure)
+            broker.subscribe(Topics.TRANSCRIBE_FAILED, handle_failure)
+            broker.subscribe(Topics.AD_DETECTION_FAILED, handle_failure)
+            broker.subscribe(Topics.AUDIO_PROCESSING_FAILED, handle_failure)
+            
+            # Submit the URL for processing
+            broker.publish(Message(
+                topic=Topics.DOWNLOAD_REQUEST,
+                data={"url": parsed_args.url}
+            ))
+            
+            logger.info("processing_started", url=parsed_args.url)
+            
+            # Wait for processing to complete
             try:
-                while True:
-                    import time
+                while not processing_complete:
                     time.sleep(1)
-            except KeyboardInterrupt:
-                logger.info("server_stopping")
-                web_server.stop()
+            finally:
+                # Clean up
                 downloader.stop()
                 broker.stop()
-                return 0
+            
+            return 0 if output_file else 1
+        
+        elif parsed_args.mode == "service":
+            # This mode uses the service runner functionality
+            run_service = importlib.import_module('.run_service', package='podcleaner')
+            run_service_main = getattr(run_service, 'main')
+            
+            # Create mock args for run_service
+            service_args = ["--service", parsed_args.service]
+            
+            # Add MQTT options if provided
+            if parsed_args.mqtt_host:
+                service_args.extend(["--mqtt-host", parsed_args.mqtt_host])
+            if parsed_args.mqtt_port:
+                service_args.extend(["--mqtt-port", str(parsed_args.mqtt_port)])
+            
+            # Add web options if provided
+            if parsed_args.web_host:
+                service_args.extend(["--web-host", parsed_args.web_host])
+            if parsed_args.web_port:
+                service_args.extend(["--web-port", str(parsed_args.web_port)])
+            
+            # Add config if provided
+            if hasattr(parsed_args, 'config') and parsed_args.config:
+                service_args.extend(["--config", parsed_args.config])
+            
+            # Add log level if debug is enabled
+            if parsed_args.debug:
+                service_args.extend(["--log-level", "DEBUG"])
+            
+            # Run the service
+            sys.argv = [sys.argv[0]] + service_args
+            return run_service_main()
         
     except KeyboardInterrupt:
         logger.warning("processing_interrupted")

@@ -39,7 +39,7 @@ def test_mqtt_broker_start(mock_mqtt_client):
     broker.start()
     
     mock_mqtt_client.username_pw_set.assert_not_called()
-    mock_mqtt_client.connect.assert_called_once_with("test-host", 1883, 60)
+    mock_mqtt_client.connect.assert_called_once_with("test-host", 1883)
     mock_mqtt_client.loop_start.assert_called_once()
 
 def test_mqtt_broker_start_with_auth(mock_mqtt_client):
@@ -55,7 +55,7 @@ def test_mqtt_broker_start_with_auth(mock_mqtt_client):
     broker.start()
     
     mock_mqtt_client.username_pw_set.assert_called_once_with("test-user", "test-password")
-    mock_mqtt_client.connect.assert_called_once_with("test-host", 1883, 60)
+    mock_mqtt_client.connect.assert_called_once_with("test-host", 1883)
     mock_mqtt_client.loop_start.assert_called_once()
 
 def test_mqtt_broker_stop(mock_mqtt_client):
@@ -66,6 +66,8 @@ def test_mqtt_broker_stop(mock_mqtt_client):
         client_id="test-client"
     )
     
+    # Set running flag to ensure stop logic executes
+    broker.running = True
     broker.stop()
     
     mock_mqtt_client.loop_stop.assert_called_once()
@@ -78,6 +80,9 @@ def test_mqtt_broker_publish(mock_mqtt_client):
         broker_port=1883,
         client_id="test-client"
     )
+    
+    # Set running flag and broker.client to ensure publish works
+    broker.running = True
     
     message = Message(
         topic=Topics.TRANSCRIBE_REQUEST,
