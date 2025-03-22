@@ -3,7 +3,7 @@
 import os
 import json
 import threading
-from typing import List, Optional
+from typing import List, Optional, Set
 import whisper
 from ..logging import get_logger
 from ..models import Segment, Transcript
@@ -27,12 +27,47 @@ class Transcriber:
         self.message_broker = message_broker
         self.running = False
         
+        # Track files being processed and already processed
+        self.files_in_process = set()
+        self.processed_files = set()
+        self.file_lock = threading.Lock()  # Lock for thread-safe access
+        
+        # File to persist processed files
+        self.debug_dir = "debug_output"
+        os.makedirs(self.debug_dir, exist_ok=True)
+        self.processed_files_path = os.path.join(self.debug_dir, "transcriber_processed_files.json")
+        
+        # Load processed files from disk if available
+        self._load_processed_files()
+        
         # Subscribe to transcription requests if message broker is provided
         if self.message_broker:
             self.message_broker.subscribe(
                 Topics.TRANSCRIBE_REQUEST,
                 self._handle_transcription_request
             )
+    
+    def _load_processed_files(self):
+        """Load the list of processed files from disk."""
+        try:
+            if os.path.exists(self.processed_files_path):
+                with open(self.processed_files_path, 'r') as f:
+                    files_list = json.load(f)
+                    self.processed_files = set(files_list)
+                    logger.info("loaded_processed_files", count=len(self.processed_files))
+        except Exception as e:
+            logger.error("failed_to_load_processed_files", error=str(e))
+            # Initialize with empty set if loading fails
+            self.processed_files = set()
+    
+    def _save_processed_files(self):
+        """Save the list of processed files to disk."""
+        try:
+            with open(self.processed_files_path, 'w') as f:
+                json.dump(list(self.processed_files), f)
+            logger.debug("saved_processed_files", count=len(self.processed_files))
+        except Exception as e:
+            logger.error("failed_to_save_processed_files", error=str(e))
     
     @property
     def model(self):
@@ -117,9 +152,47 @@ class Transcriber:
             ))
             return
         
+        # Check if file is already processed or in process
+        with self.file_lock:
+            if file_path in self.processed_files:
+                logger.info("file_already_processed", file_path=file_path)
+                transcript_path = f"{file_path}.transcript.json"
+                self.message_broker.publish(Message(
+                    topic=Topics.TRANSCRIBE_COMPLETE,
+                    data={
+                        "file_path": file_path,
+                        "transcript_path": transcript_path,
+                        "already_processed": True
+                    },
+                    correlation_id=correlation_id
+                ))
+                return
+            
+            if file_path in self.files_in_process:
+                logger.info("file_already_in_process", file_path=file_path)
+                self.message_broker.publish(Message(
+                    topic=Topics.TRANSCRIBE_FAILED,
+                    data={
+                        "file_path": file_path,
+                        "error": "File is already being processed"
+                    },
+                    correlation_id=correlation_id
+                ))
+                return
+            
+            # Mark file as in process
+            self.files_in_process.add(file_path)
+        
         try:
             transcript = self.transcribe(file_path)
             transcript_path = f"{file_path}.transcript.json"
+            
+            # Mark file as processed and remove from in-process list
+            with self.file_lock:
+                self.processed_files.add(file_path)
+                self.files_in_process.remove(file_path)
+                # Save to disk when a new file is processed
+                self._save_processed_files()
             
             self.message_broker.publish(Message(
                 topic=Topics.TRANSCRIBE_COMPLETE,
@@ -130,6 +203,10 @@ class Transcriber:
                 correlation_id=correlation_id
             ))
         except Exception as e:
+            # Remove file from in-process list on error
+            with self.file_lock:
+                self.files_in_process.remove(file_path)
+                
             logger.error("transcription_request_failed", file=file_path, error=str(e))
             self.message_broker.publish(Message(
                 topic=Topics.TRANSCRIBE_FAILED,
@@ -148,4 +225,6 @@ class Transcriber:
     def stop(self) -> None:
         """Stop the transcriber service."""
         self.running = False
+        # Save processed files when stopping the service
+        self._save_processed_files()
         logger.info("transcriber_stopped") 

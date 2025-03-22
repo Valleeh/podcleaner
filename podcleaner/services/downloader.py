@@ -2,8 +2,9 @@
 
 import os
 import hashlib
+import json
 import threading
-from typing import Optional
+from typing import Optional, Set, Dict
 import requests
 import feedparser
 from ..logging import get_logger
@@ -26,6 +27,21 @@ class PodcastDownloader:
         self.running = False
         os.makedirs(self.download_dir, exist_ok=True)
         
+        # Track files being processed and already processed
+        self.files_in_process = set()
+        self.processed_files = set()
+        self.rss_feeds_processed = set()
+        self.file_lock = threading.Lock()  # Lock for thread-safe access
+        
+        # File to persist processed files
+        self.debug_dir = "debug_output"
+        os.makedirs(self.debug_dir, exist_ok=True)
+        self.processed_files_path = os.path.join(self.debug_dir, "downloader_processed_files.json")
+        self.rss_feeds_path = os.path.join(self.debug_dir, "downloader_processed_rss.json")
+        
+        # Load processed files from disk if available
+        self._load_processed_data()
+        
         # Subscribe to download requests
         self.message_broker.subscribe(
             Topics.DOWNLOAD_REQUEST, 
@@ -37,6 +53,46 @@ class PodcastDownloader:
             Topics.RSS_DOWNLOAD_REQUEST,
             self._handle_rss_download_request
         )
+    
+    def _load_processed_data(self):
+        """Load the list of processed files and RSS feeds from disk."""
+        try:
+            if os.path.exists(self.processed_files_path):
+                with open(self.processed_files_path, 'r') as f:
+                    files_list = json.load(f)
+                    self.processed_files = set(files_list)
+                    logger.info("loaded_processed_files", count=len(self.processed_files))
+        except Exception as e:
+            logger.error("failed_to_load_processed_files", error=str(e))
+            # Initialize with empty set if loading fails
+            self.processed_files = set()
+            
+        try:
+            if os.path.exists(self.rss_feeds_path):
+                with open(self.rss_feeds_path, 'r') as f:
+                    rss_list = json.load(f)
+                    self.rss_feeds_processed = set(rss_list)
+                    logger.info("loaded_processed_rss_feeds", count=len(self.rss_feeds_processed))
+        except Exception as e:
+            logger.error("failed_to_load_processed_rss", error=str(e))
+            # Initialize with empty set if loading fails
+            self.rss_feeds_processed = set()
+    
+    def _save_processed_data(self):
+        """Save the list of processed files and RSS feeds to disk."""
+        try:
+            with open(self.processed_files_path, 'w') as f:
+                json.dump(list(self.processed_files), f)
+            logger.debug("saved_processed_files", count=len(self.processed_files))
+        except Exception as e:
+            logger.error("failed_to_save_processed_files", error=str(e))
+            
+        try:
+            with open(self.rss_feeds_path, 'w') as f:
+                json.dump(list(self.rss_feeds_processed), f)
+            logger.debug("saved_processed_rss_feeds", count=len(self.rss_feeds_processed))
+        except Exception as e:
+            logger.error("failed_to_save_processed_rss", error=str(e))
     
     def _generate_file_path(self, url: str) -> str:
         """Generate a unique file path for the podcast URL."""
@@ -71,6 +127,11 @@ class PodcastDownloader:
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
             
+            # Add to processed files
+            with self.file_lock:
+                self.processed_files.add(url)
+                self._save_processed_data()
+                
             logger.info("download_complete", path=file_path)
             return file_path
             
@@ -122,6 +183,11 @@ class PodcastDownloader:
                 if episode["audio_url"]:
                     podcast_info["episodes"].append(episode)
             
+            # Add to processed RSS feeds
+            with self.file_lock:
+                self.rss_feeds_processed.add(rss_url)
+                self._save_processed_data()
+                
             logger.info("rss_download_complete", url=rss_url, episodes=len(podcast_info["episodes"]))
             return podcast_info
             
@@ -147,8 +213,44 @@ class PodcastDownloader:
             ))
             return
         
+        # Check if URL is already processed or in process
+        with self.file_lock:
+            if url in self.processed_files and os.path.exists(self._generate_file_path(url)):
+                logger.info("file_already_downloaded", url=url)
+                file_path = self._generate_file_path(url)
+                self.message_broker.publish(Message(
+                    topic=Topics.DOWNLOAD_COMPLETE,
+                    data={
+                        "url": url,
+                        "file_path": file_path,
+                        "already_processed": True
+                    },
+                    correlation_id=correlation_id
+                ))
+                return
+            
+            if url in self.files_in_process:
+                logger.info("file_already_downloading", url=url)
+                self.message_broker.publish(Message(
+                    topic=Topics.DOWNLOAD_FAILED,
+                    data={
+                        "url": url,
+                        "error": "File is already being downloaded"
+                    },
+                    correlation_id=correlation_id
+                ))
+                return
+            
+            # Mark as in process
+            self.files_in_process.add(url)
+        
         try:
             file_path = self.download(url)
+            
+            # Remove from in-process list
+            with self.file_lock:
+                if url in self.files_in_process:
+                    self.files_in_process.remove(url)
             
             self.message_broker.publish(Message(
                 topic=Topics.DOWNLOAD_COMPLETE,
@@ -159,6 +261,11 @@ class PodcastDownloader:
                 correlation_id=correlation_id
             ))
         except Exception as e:
+            # Remove from in-process list on error
+            with self.file_lock:
+                if url in self.files_in_process:
+                    self.files_in_process.remove(url)
+                
             logger.error("download_request_failed", url=url, error=str(e))
             self.message_broker.publish(Message(
                 topic=Topics.DOWNLOAD_FAILED,
@@ -186,6 +293,38 @@ class PodcastDownloader:
                 correlation_id=correlation_id
             ))
             return
+        
+        # Check if RSS feed is already processed or in process
+        with self.file_lock:
+            if rss_url in self.rss_feeds_processed:
+                logger.info("rss_already_processed", url=rss_url)
+                # We could cache the podcast info structure for faster responses
+                # But for now, just re-download it since it's not that expensive
+                try:
+                    podcast_info = self.download_rss(rss_url)
+                    
+                    # Replace episode URLs with our server URLs if needed
+                    base_url = message.data.get("base_url")
+                    if base_url:
+                        for episode in podcast_info["episodes"]:
+                            original_url = episode["audio_url"]
+                            if original_url:
+                                episode["original_url"] = original_url
+                                episode["audio_url"] = f"{base_url}/process?url={original_url}"
+                    
+                    self.message_broker.publish(Message(
+                        topic=Topics.RSS_DOWNLOAD_COMPLETE,
+                        data={
+                            "rss_url": rss_url,
+                            "podcast_info": podcast_info,
+                            "already_processed": True
+                        },
+                        correlation_id=correlation_id
+                    ))
+                    return
+                except Exception as e:
+                    # If re-download fails, just continue to fresh download
+                    logger.warning("rss_cached_download_failed", url=rss_url, error=str(e))
         
         try:
             podcast_info = self.download_rss(rss_url)
@@ -226,4 +365,6 @@ class PodcastDownloader:
     def stop(self) -> None:
         """Stop the downloader service."""
         self.running = False
+        # Save processed files when stopping the service
+        self._save_processed_data()
         logger.info("downloader_stopped") 

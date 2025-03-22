@@ -1,162 +1,175 @@
 # PodCleaner
 
-A decoupled service-based system for downloading, transcribing, and removing ads from podcasts.
+A microservices-based application for automatically cleaning podcasts by removing advertisements.
 
 ## Features
 
-- Download podcasts from direct URLs or RSS feeds
-- Transcribe audio using OpenAI's Whisper
-- Detect advertisements using AI
-- Remove ads from the podcast
-- Decoupled service architecture using MQTT message broker
-- Web API for easy integration
+- Download podcasts from URLs
+- Transcribe audio using OpenAI's Whisper model
+- Detect advertisements using LLM-based analysis
+- Remove identified ads from the audio
+- Intelligent file tracking to prevent duplicate processing
+- Microservices architecture for scalability
+- MQTT-based communication between services
+- Docker support for easy deployment
+- Web API for submitting podcast processing requests
 
 ## Architecture
 
-PodCleaner uses a decoupled service architecture:
+The application follows a microservices architecture with the following components:
 
-- **Web Server**: Handles API requests
-- **Downloader**: Downloads podcast episodes
-- **Transcriber**: Transcribes audio to text
-- **Ad Detector**: Analyzes transcriptions to identify advertisements
-- **Audio Processor**: Processes audio to remove advertisements
-- **Message Broker**: Coordinates communication between services (MQTT)
+1. **Web Service**: Provides a REST API for submitting podcast processing requests.
+2. **Transcriber Service**: Transcribes audio files using OpenAI's Whisper.
+3. **Ad Detector Service**: Identifies advertisements in transcripts using LLM-based analysis.
+4. **Audio Processor Service**: Removes identified advertisements from the audio.
+5. **MQTT Message Broker**: Facilitates communication between services.
+
+The workflow is as follows:
+
+1. A URL is submitted to the web service.
+2. The podcast is downloaded and a message is sent to the transcriber service.
+3. The audio is transcribed and a message is sent to the ad detector service.
+4. Advertisements are detected and a message is sent to the audio processor service.
+5. Ads are removed from the audio and the clean file is made available for download.
 
 ## Requirements
 
-- Python 3.10+
-- OpenAI API key
+- Python 3.10 or higher
 - FFmpeg (for audio processing)
+- Docker and Docker Compose (for containerized deployment)
+- External MQTT broker (e.g., Mosquitto)
 
 ## Setup
 
 ### Local Development
 
-1. Clone the repository
+1. Clone the repository:
+   ```
+   git clone https://github.com/yourusername/podcleaner.git
+   cd podcleaner
+   ```
+
 2. Create a virtual environment:
    ```
-   python -m venv venv
-   source venv/bin/activate  # Linux/Mac
-   venv\Scripts\activate     # Windows
+   python -m venv test_env
+   source test_env/bin/activate  # On Windows: test_env\Scripts\activate
    ```
+
 3. Install dependencies:
    ```
    pip install -r requirements.txt
    ```
-4. Set your OpenAI API key:
+
+4. Install FFmpeg:
+   - Ubuntu/Debian: `sudo apt-get install ffmpeg`
+   - macOS (using Homebrew): `brew install ffmpeg`
+   - Windows: Download from [ffmpeg.org](https://ffmpeg.org/download.html)
+
+5. Configure the application by creating a `.env` file with the following settings:
    ```
-   export OPENAI_API_KEY=your_api_key_here
+   OPENAI_API_KEY=your_openai_api_key
+   MQTT_HOST=localhost
+   MQTT_PORT=1883
    ```
-5. Run the services:
+
+6. Run the application using the unified service runner:
    ```
-   python -m podcleaner.run_services --mqtt-host localhost --mqtt-port 1883
+   # To run all services
+   python -m podcleaner.run_service --all
+   
+   # To run specific services
+   python -m podcleaner.run_service --web --transcriber
    ```
 
 ### Docker Deployment
 
-1. Clone the repository
-2. Set your OpenAI API key:
-   ```
-   export OPENAI_API_KEY=your_api_key_here
-   ```
-3. Start the services with Docker Compose:
+1. Build and start the services:
    ```
    docker-compose up -d
    ```
 
-## Usage
-
-### Web API
-
-- Process a podcast: `GET /process?url=URL_TO_PODCAST`
-- Process an RSS feed: `GET /rss?url=URL_TO_RSS_FEED`
-- Check status of a request: `GET /status?id=REQUEST_ID`
-
-### Examples
-
-Process a podcast:
-```
-curl "http://localhost:8080/process?url=https://example.com/podcast.mp3"
-```
-
-Process an RSS feed:
-```
-curl "http://localhost:8080/rss?url=https://feeds.example.com/podcast.xml"
-```
-
-Check status:
-```
-curl "http://localhost:8080/status?id=REQUEST_ID"
-```
-
-## Scaling
-
-For production deployments, you can scale the worker services independently:
-
-```
-docker-compose up -d --scale worker=3
-```
-
-## Configuration
-
-Configuration is managed via `config.yaml`:
-
-- LLM settings (model, temperature, etc.)
-- Audio processing parameters
-- Message broker settings
-- Web server configuration
+2. Access the web API at http://localhost:8080
 
 ## Testing
 
-PodCleaner includes a comprehensive test suite to ensure reliability and correctness.
+The project includes a comprehensive test suite to ensure functionality and prevent regressions.
 
-### Running Tests
-
-1. Set up a virtual environment:
+1. Create and activate a test environment:
    ```
    python -m venv test_env
-   source test_env/bin/activate  # Linux/Mac
-   test_env\Scripts\activate     # Windows
-   ```
-
-2. Install dependencies:
-   ```
+   source test_env/bin/activate  # On Windows: test_env\Scripts\activate
    pip install -r requirements.txt
-   pip install pytest pytest-cov
    ```
 
-3. Run all tests:
+2. Run all tests (excluding MQTT broker tests that require a live broker):
    ```
-   python -m pytest tests/
+   python -m pytest -k "not test_mqtt_broker"
+   ```
+
+3. Run specific test modules:
+   ```
+   python -m pytest tests/test_service_modules.py
+   python -m pytest tests/test_transcriber.py
    ```
 
 4. Run tests with coverage:
    ```
-   python -m pytest --cov=podcleaner tests/
+   python -m pytest --cov=podcleaner
    ```
 
-5. Run specific test categories:
-   ```
-   python -m pytest tests/test_ad_detector.py  # Test ad detection
-   python -m pytest tests/test_transcriber.py  # Test transcription
-   python -m pytest tests/test_integration.py  # Test end-to-end workflows
-   ```
+The tests include unit tests for individual components and integration tests to verify the interaction between different services. The duplicate file processing prevention mechanism is also thoroughly tested.
 
-### Continuous Integration
+## Web API Usage
 
-PodCleaner uses GitHub Actions for continuous integration. Tests are automatically run on each push and pull request to the main branch. You can check the `.github/workflows/test-and-build.yml` file for details.
+The web API provides the following endpoints:
 
-### Test-Driven Development
+- `POST /podcasts`: Submit a podcast URL for processing
+  ```
+  curl -X POST http://localhost:8080/podcasts -H "Content-Type: application/json" -d '{"url": "https://example.com/podcast.mp3"}'
+  ```
 
-For contributors, we recommend running tests before pushing any changes:
-   ```
-   ./run_tests_and_build.sh
-   ```
+- `GET /podcasts/{id}`: Check the status of a podcast processing request
+  ```
+  curl http://localhost:8080/podcasts/12345
+  ```
 
-This script will run all tests and, if they pass, build and start the Docker containers.
+- `GET /podcasts/{id}/download`: Download the processed podcast
+  ```
+  curl -o clean_podcast.mp3 http://localhost:8080/podcasts/12345/download
+  ```
+
+## Scaling
+
+Each service can be scaled independently based on resource requirements:
+
+- Transcription is CPU-intensive, so scale the transcriber service for higher throughput.
+- Ad detection is memory-intensive, so scale the ad detector service as needed.
+- Web and audio processor services are less resource-intensive but can also be scaled.
+
+To scale services using Docker:
+
+```
+docker-compose up -d --scale transcriber=3 --scale ad-detector=2
+```
+
+## Configuration
+
+Configuration options can be set using environment variables or a `.env` file:
+
+- `LOG_LEVEL`: Logging level (default: INFO)
+- `MQTT_HOST`: MQTT broker host
+- `MQTT_PORT`: MQTT broker port
+- `MQTT_USERNAME`: MQTT broker username (optional)
+- `MQTT_PASSWORD`: MQTT broker password (optional)
+- `OPENAI_API_KEY`: OpenAI API key for Whisper and LLM
+- `AUDIO_MIN_DURATION`: Minimum duration (in seconds) for ad segments (default: 1.0)
+- `AUDIO_MAX_GAP`: Maximum gap (in seconds) between ad segments to merge (default: 0.5)
 
 ## Troubleshooting
 
-- If you encounter OpenAI API quota errors, check your API usage and limits
-- Ensure the MQTT broker is running before starting other services
-- Check the logs for detailed error information 
+- **Services not connecting to MQTT**: Ensure the MQTT broker is running and accessible.
+- **Audio processing errors**: Verify FFmpeg is installed and in the system PATH.
+- **Transcription errors**: Check the OpenAI API key and ensure the model is available.
+- **Files not being processed**: Check the `debug_output` directory for tracking processed files.
+
+For more information, see the logs of each service. 

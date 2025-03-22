@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 from podcleaner.config import LLMConfig
 from podcleaner.models import Segment, Transcript
 from podcleaner.services.ad_detector import AdDetector
+from podcleaner.services.message_broker import Message, Topics
 
 @pytest.fixture
 def mock_openai():
@@ -125,4 +126,154 @@ def test_detect_ads_integration(mock_openai):
     # Verify results
     ad_segments = [seg for seg in result.segments if seg.is_ad]
     assert len(ad_segments) == 10, "Should identify 10 segments as ads"
-    assert all(148 <= seg.id <= 157 for seg in ad_segments), "Ad segments should be in range 148-157" 
+    assert all(148 <= seg.id <= 157 for seg in ad_segments), "Ad segments should be in range 148-157"
+
+def test_handle_already_processed_file(mock_openai):
+    """Test that the ad detector doesn't reprocess already processed files."""
+    config = LLMConfig(model_name="test-model", api_key="test-key")
+    mock_broker = MagicMock()
+    detector = AdDetector(config, message_broker=mock_broker)
+    detector.running = True
+    
+    # Add a file to the processed files set
+    test_file_path = "/path/to/file.mp3"
+    test_transcript_path = "/path/to/file.mp3.transcript.json"
+    detector.processed_files.add(test_file_path)
+    
+    # Create a message requesting ad detection for the processed file
+    message = Message(
+        topic=Topics.AD_DETECTION_REQUEST,
+        data={
+            "file_path": test_file_path,
+            "transcript_path": test_transcript_path
+        },
+        correlation_id="test-correlation-id"
+    )
+    
+    # Handle the message
+    detector._handle_ad_detection_request(message)
+    
+    # Verify that a "already processed" message was published
+    mock_broker.publish.assert_called_once()
+    published_message = mock_broker.publish.call_args[0][0]
+    assert published_message.topic == Topics.AD_DETECTION_COMPLETE
+    assert published_message.data["file_path"] == test_file_path
+    assert published_message.data["already_processed"] is True
+    assert published_message.correlation_id == "test-correlation-id"
+
+def test_handle_in_process_file(mock_openai):
+    """Test that the ad detector doesn't reprocess files that are currently being processed."""
+    config = LLMConfig(model_name="test-model", api_key="test-key")
+    mock_broker = MagicMock()
+    detector = AdDetector(config, message_broker=mock_broker)
+    detector.running = True
+    
+    # Add a file to the files in process set
+    test_file_path = "/path/to/file.mp3"
+    test_transcript_path = "/path/to/file.mp3.transcript.json"
+    detector.files_in_process.add(test_file_path)
+    
+    # Create a message requesting ad detection for the in-process file
+    message = Message(
+        topic=Topics.AD_DETECTION_REQUEST,
+        data={
+            "file_path": test_file_path,
+            "transcript_path": test_transcript_path
+        },
+        correlation_id="test-correlation-id"
+    )
+    
+    # Handle the message
+    detector._handle_ad_detection_request(message)
+    
+    # Verify that an "in progress" message was published
+    mock_broker.publish.assert_called_once()
+    published_message = mock_broker.publish.call_args[0][0]
+    assert published_message.topic == Topics.AD_DETECTION_IN_PROGRESS
+    assert published_message.data["file_path"] == test_file_path
+    assert published_message.correlation_id == "test-correlation-id"
+
+def test_file_lifecycle(mock_openai):
+    """Test the complete lifecycle of file processing - from in-process to processed."""
+    config = LLMConfig(model_name="test-model", api_key="test-key")
+    mock_broker = MagicMock()
+    detector = AdDetector(config, message_broker=mock_broker)
+    detector.running = True
+    
+    # Set up test files
+    test_file_path = "/path/to/file.mp3"
+    test_transcript_path = "/path/to/file.mp3.transcript.json"
+    
+    # Mock file operations and detect_ads
+    with patch("builtins.open", MagicMock()), \
+         patch("json.load", return_value={"segments": []}), \
+         patch("json.dump"), \
+         patch.object(Transcript, "from_dict", return_value=Transcript(segments=[])), \
+         patch.object(detector, "detect_ads", return_value=Transcript(segments=[])):
+        
+        # Create a message requesting ad detection
+        message = Message(
+            topic=Topics.AD_DETECTION_REQUEST,
+            data={
+                "file_path": test_file_path,
+                "transcript_path": test_transcript_path
+            },
+            correlation_id="test-correlation-id"
+        )
+        
+        # Check that file is not in any processing state initially
+        assert test_file_path not in detector.files_in_process
+        assert test_file_path not in detector.processed_files
+        
+        # Handle the message
+        detector._handle_ad_detection_request(message)
+        
+        # Check that file is now in processed state and not in in-process state
+        assert test_file_path not in detector.files_in_process
+        assert test_file_path in detector.processed_files
+        
+        # Verify that a "complete" message was published
+        mock_broker.publish.assert_called_once()
+        published_message = mock_broker.publish.call_args[0][0]
+        assert published_message.topic == Topics.AD_DETECTION_COMPLETE
+        assert published_message.data["file_path"] == test_file_path
+        assert published_message.correlation_id == "test-correlation-id"
+
+def test_error_handling(mock_openai):
+    """Test that errors during processing remove the file from in-process list."""
+    config = LLMConfig(model_name="test-model", api_key="test-key")
+    mock_broker = MagicMock()
+    detector = AdDetector(config, message_broker=mock_broker)
+    detector.running = True
+    
+    # Set up test files
+    test_file_path = "/path/to/file.mp3"
+    test_transcript_path = "/path/to/file.mp3.transcript.json"
+    
+    # Mock file operations to raise an exception
+    with patch("builtins.open", side_effect=Exception("Test error")):
+        
+        # Create a message requesting ad detection
+        message = Message(
+            topic=Topics.AD_DETECTION_REQUEST,
+            data={
+                "file_path": test_file_path,
+                "transcript_path": test_transcript_path
+            },
+            correlation_id="test-correlation-id"
+        )
+        
+        # Handle the message (this should trigger an error)
+        detector._handle_ad_detection_request(message)
+        
+        # Check that file is removed from in-process state and not in processed state
+        assert test_file_path not in detector.files_in_process
+        assert test_file_path not in detector.processed_files
+        
+        # Verify that a "failed" message was published
+        mock_broker.publish.assert_called_once()
+        published_message = mock_broker.publish.call_args[0][0]
+        assert published_message.topic == Topics.AD_DETECTION_FAILED
+        assert published_message.data["file_path"] == test_file_path
+        assert "Test error" in published_message.data["error"]
+        assert published_message.correlation_id == "test-correlation-id" 

@@ -21,9 +21,9 @@ RUN mkdir -p /app/podcasts /app/debug_output
 
 # Environment variables
 ENV PYTHONUNBUFFERED=1
-ENV SERVICE_TYPE=audio-processor
+ENV SERVICE_TYPE=audio_processor
 
-# Create entrypoint script for audio-processor service
+# Create entrypoint script for audio processor service
 RUN echo '#!/bin/bash\n\
 # Load environment variables from secrets.json\n\
 if [ -f /app/secrets.json ]; then\n\
@@ -40,8 +40,9 @@ MQTT_PORT=${MQTT_PORT:-1883}\n\
 MQTT_USERNAME=${MQTT_USERNAME:-null}\n\
 MQTT_PASSWORD=${MQTT_PASSWORD:-null}\n\
 \n\
-# Run only the audio-processor service\n\
-python -m podcleaner.run_audio_processor_service --mqtt-host ${MQTT_HOST} --mqtt-port ${MQTT_PORT} \
+# Run audio processor service using unified service runner\n\
+python -m podcleaner.run_service --service audio-processor \
+--mqtt-host ${MQTT_HOST} --mqtt-port ${MQTT_PORT} \
 --mqtt-username ${MQTT_USERNAME} --mqtt-password ${MQTT_PASSWORD}\n\
 ' > /app/entrypoint-audio-processor.sh && chmod +x /app/entrypoint-audio-processor.sh
 

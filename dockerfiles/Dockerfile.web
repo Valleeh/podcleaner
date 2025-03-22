@@ -43,8 +43,9 @@ MQTT_PORT=${MQTT_PORT:-1883}\n\
 MQTT_USERNAME=${MQTT_USERNAME:-null}\n\
 MQTT_PASSWORD=${MQTT_PASSWORD:-null}\n\
 \n\
-# Run only the web service\n\
-python -m podcleaner.run_web_service --mqtt-host ${MQTT_HOST} --mqtt-port ${MQTT_PORT} \
+# Run web service using unified service runner\n\
+python -m podcleaner.run_service --service web \
+--mqtt-host ${MQTT_HOST} --mqtt-port ${MQTT_PORT} \
 --mqtt-username ${MQTT_USERNAME} --mqtt-password ${MQTT_PASSWORD} \
 --web-host 0.0.0.0 --web-port ${WEB_PORT:-8080}\n\
 ' > /app/entrypoint-web.sh && chmod +x /app/entrypoint-web.sh

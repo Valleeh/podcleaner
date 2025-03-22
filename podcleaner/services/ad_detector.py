@@ -4,7 +4,7 @@ import json
 import time
 import os
 import threading
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Set
 import requests
 import openai
 from ..logging import get_logger
@@ -27,6 +27,19 @@ class AdDetector:
         self.message_broker = message_broker
         self.running = False
         
+        # Track files being processed and already processed
+        self.files_in_process = set()
+        self.processed_files = set()
+        self.file_lock = threading.Lock()  # Lock for thread-safe access
+        
+        # File to persist processed files
+        self.debug_dir = "debug_output"
+        os.makedirs(self.debug_dir, exist_ok=True)
+        self.processed_files_path = os.path.join(self.debug_dir, "processed_files.json")
+        
+        # Load processed files from disk if available
+        self._load_processed_files()
+        
         # Set up OpenAI client
         self.client = openai.OpenAI(
             api_key=config.api_key,
@@ -40,8 +53,29 @@ class AdDetector:
                 self._handle_ad_detection_request
             )
         
-        self.debug_dir = "debug_output"
         os.makedirs(self.debug_dir, exist_ok=True)
+    
+    def _load_processed_files(self):
+        """Load the list of processed files from disk."""
+        try:
+            if os.path.exists(self.processed_files_path):
+                with open(self.processed_files_path, 'r') as f:
+                    files_list = json.load(f)
+                    self.processed_files = set(files_list)
+                    logger.info("loaded_processed_files", count=len(self.processed_files))
+        except Exception as e:
+            logger.error("failed_to_load_processed_files", error=str(e))
+            # Initialize with empty set if loading fails
+            self.processed_files = set()
+    
+    def _save_processed_files(self):
+        """Save the list of processed files to disk."""
+        try:
+            with open(self.processed_files_path, 'w') as f:
+                json.dump(list(self.processed_files), f)
+            logger.debug("saved_processed_files", count=len(self.processed_files))
+        except Exception as e:
+            logger.error("failed_to_save_processed_files", error=str(e))
     
     def _write_debug_info(self, filename: str, data: dict):
         """Write debug information to a file."""
@@ -435,6 +469,36 @@ class AdDetector:
             ))
             return
         
+        # Check if file is already processed or in process
+        with self.file_lock:
+            if file_path in self.processed_files:
+                logger.info("file_already_processed", file_path=file_path)
+                self.message_broker.publish(Message(
+                    topic=Topics.AD_DETECTION_COMPLETE,
+                    data={
+                        "file_path": file_path,
+                        "transcript_path": transcript_path,
+                        "already_processed": True
+                    },
+                    correlation_id=correlation_id
+                ))
+                return
+            
+            if file_path in self.files_in_process:
+                logger.info("file_already_in_process", file_path=file_path)
+                self.message_broker.publish(Message(
+                    topic=Topics.AD_DETECTION_IN_PROGRESS,
+                    data={
+                        "file_path": file_path,
+                        "transcript_path": transcript_path,
+                    },
+                    correlation_id=correlation_id
+                ))
+                return
+            
+            # Mark file as in process
+            self.files_in_process.add(file_path)
+        
         try:
             # Load transcript
             with open(transcript_path, 'r') as f:
@@ -448,6 +512,13 @@ class AdDetector:
             with open(transcript_path, 'w') as f:
                 json.dump(processed_transcript.to_dict(), f, indent=2)
             
+            # Mark file as processed and remove from in-process list
+            with self.file_lock:
+                self.processed_files.add(file_path)
+                self.files_in_process.remove(file_path)
+                # Save to disk when a new file is processed
+                self._save_processed_files()
+            
             self.message_broker.publish(Message(
                 topic=Topics.AD_DETECTION_COMPLETE,
                 data={
@@ -457,6 +528,10 @@ class AdDetector:
                 correlation_id=correlation_id
             ))
         except Exception as e:
+            # Remove file from in-process list on error
+            with self.file_lock:
+                self.files_in_process.remove(file_path)
+                
             logger.error("ad_detection_request_failed", file=file_path, error=str(e))
             self.message_broker.publish(Message(
                 topic=Topics.AD_DETECTION_FAILED,
@@ -475,4 +550,6 @@ class AdDetector:
     def stop(self) -> None:
         """Stop the ad detector service."""
         self.running = False
+        # Save processed files when stopping the service
+        self._save_processed_files()
         logger.info("ad_detector_stopped") 

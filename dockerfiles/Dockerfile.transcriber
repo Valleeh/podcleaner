@@ -12,7 +12,6 @@ RUN apt-get update && \
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install --no-cache-dir whisper-openai
 
 # Copy the application
 COPY . .
@@ -23,6 +22,9 @@ RUN mkdir -p /app/podcasts /app/debug_output
 # Environment variables
 ENV PYTHONUNBUFFERED=1
 ENV SERVICE_TYPE=transcriber
+
+# Install PyTorch with CUDA support for better transcription performance
+RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
 # Create entrypoint script for transcriber service
 RUN echo '#!/bin/bash\n\
@@ -41,9 +43,11 @@ MQTT_PORT=${MQTT_PORT:-1883}\n\
 MQTT_USERNAME=${MQTT_USERNAME:-null}\n\
 MQTT_PASSWORD=${MQTT_PASSWORD:-null}\n\
 \n\
-# Run only the transcriber service\n\
-python -m podcleaner.run_transcriber_service --mqtt-host ${MQTT_HOST} --mqtt-port ${MQTT_PORT} \
---mqtt-username ${MQTT_USERNAME} --mqtt-password ${MQTT_PASSWORD}\n\
+# Run transcriber service using unified service runner\n\
+python -m podcleaner.run_service --service transcriber \
+--mqtt-host ${MQTT_HOST} --mqtt-port ${MQTT_PORT} \
+--mqtt-username ${MQTT_USERNAME} --mqtt-password ${MQTT_PASSWORD} \
+--model-name ${MODEL_NAME:-"base"}\n\
 ' > /app/entrypoint-transcriber.sh && chmod +x /app/entrypoint-transcriber.sh
 
 ENTRYPOINT ["/app/entrypoint-transcriber.sh"] 

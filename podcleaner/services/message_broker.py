@@ -246,6 +246,7 @@ class Topics:
     AD_DETECTION_REQUEST = "podcast.ad_detection.request"
     AD_DETECTION_COMPLETE = "podcast.ad_detection.complete"
     AD_DETECTION_FAILED = "podcast.ad_detection.failed"
+    AD_DETECTION_IN_PROGRESS = "podcast.ad_detection.in_progress"
     
     AUDIO_PROCESSING_REQUEST = "podcast.audio_processing.request"
     AUDIO_PROCESSING_COMPLETE = "podcast.audio_processing.complete" 
