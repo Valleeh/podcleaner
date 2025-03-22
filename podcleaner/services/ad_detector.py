@@ -3,12 +3,14 @@
 import json
 import time
 import os
-from typing import List, Dict
+import threading
+from typing import List, Dict, Optional
 import requests
 import openai
 from ..logging import get_logger
 from ..config import LLMConfig
 from ..models import Segment, Transcript, TranscriptChunk, ProcessingResult
+from .message_broker import Message, MessageBroker, Topics
 
 logger = get_logger(__name__)
 
@@ -19,11 +21,25 @@ class AdDetectionError(Exception):
 class AdDetector:
     """Service for detecting advertisements in podcast transcripts."""
     
-    def __init__(self, config: LLMConfig):
-        """Initialize the detector with configuration."""
+    def __init__(self, config: LLMConfig, message_broker: Optional[MessageBroker] = None):
+        """Initialize the ad detector with the specified configuration and message broker."""
         self.config = config
-        self.client = None
-        self._init_client()
+        self.message_broker = message_broker
+        self.running = False
+        
+        # Set up OpenAI client
+        self.client = openai.OpenAI(
+            api_key=config.api_key,
+            base_url=config.base_url
+        )
+        
+        # Subscribe to ad detection requests if message broker is provided
+        if self.message_broker:
+            self.message_broker.subscribe(
+                Topics.AD_DETECTION_REQUEST,
+                self._handle_ad_detection_request
+            )
+        
         self.debug_dir = "debug_output"
         os.makedirs(self.debug_dir, exist_ok=True)
     
@@ -33,23 +49,6 @@ class AdDetector:
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
         logger.debug("debug_info_written", file=filepath)
-
-    def _init_client(self, max_retries: int = 3, retry_delay: float = 2.0):
-        """Initialize OpenAI client."""
-        try:
-            self.client = openai.Client(
-                api_key=self.config.api_key,
-                base_url=self.config.base_url if self.config.base_url else None
-            )
-            logger.info("openai_client_initialized")
-        except Exception as e:
-            logger.error("openai_client_initialization_failed", error=str(e))
-            raise AdDetectionError(f"Failed to initialize OpenAI client: {str(e)}")
-    
-    def _ensure_client(self):
-        """Ensure client is initialized."""
-        if self.client is None:
-            self._init_client()
 
     def _create_chunks(self, transcript: Transcript) -> List[TranscriptChunk]:
         """Split the transcript into fixed-size chunks."""
@@ -111,7 +110,6 @@ class AdDetector:
         
         while attempts < self.config.max_attempts:
             try:
-                self._ensure_client()  # Ensure client is initialized
                 messages = self._build_prompt(chunk)
                 logger.info("processing_chunk", chunk_id=chunk.chunk_id, 
                           segment_count=len(chunk.segments),
@@ -417,3 +415,64 @@ class AdDetector:
             blocks.append(current_block)
         
         return blocks 
+
+    def _handle_ad_detection_request(self, message: Message) -> None:
+        """Handle an ad detection request message."""
+        if not self.running:
+            logger.warning("ad_detector_not_running")
+            return
+        
+        file_path = message.data.get("file_path")
+        transcript_path = message.data.get("transcript_path")
+        correlation_id = message.correlation_id
+        
+        if not file_path or not transcript_path:
+            logger.warning("invalid_ad_detection_request", message_id=message.message_id)
+            self.message_broker.publish(Message(
+                topic=Topics.AD_DETECTION_FAILED,
+                data={"error": "Missing file_path or transcript_path"},
+                correlation_id=correlation_id
+            ))
+            return
+        
+        try:
+            # Load transcript
+            with open(transcript_path, 'r') as f:
+                transcript_data = json.load(f)
+                transcript = Transcript.from_dict(transcript_data)
+            
+            # Detect ads
+            processed_transcript = self.detect_ads(transcript)
+            
+            # Save updated transcript
+            with open(transcript_path, 'w') as f:
+                json.dump(processed_transcript.to_dict(), f, indent=2)
+            
+            self.message_broker.publish(Message(
+                topic=Topics.AD_DETECTION_COMPLETE,
+                data={
+                    "file_path": file_path,
+                    "transcript_path": transcript_path
+                },
+                correlation_id=correlation_id
+            ))
+        except Exception as e:
+            logger.error("ad_detection_request_failed", file=file_path, error=str(e))
+            self.message_broker.publish(Message(
+                topic=Topics.AD_DETECTION_FAILED,
+                data={
+                    "file_path": file_path,
+                    "error": str(e)
+                },
+                correlation_id=correlation_id
+            ))
+    
+    def start(self) -> None:
+        """Start the ad detector service."""
+        self.running = True
+        logger.info("ad_detector_started")
+    
+    def stop(self) -> None:
+        """Stop the ad detector service."""
+        self.running = False
+        logger.info("ad_detector_stopped") 

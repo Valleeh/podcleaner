@@ -9,4 +9,21 @@ audio:
   max_gap: 20.0
   download_dir: "podcasts"
 
-log_level: "INFO" 
+log_level: "INFO"
+
+# Message broker settings
+message_broker:
+  type: "mqtt"  # Options: "mqtt", "in_memory"
+  mqtt:
+    # Host and credentials are loaded from secrets.json
+    host: null
+    port: null
+    username: null
+    password: null
+    client_id: null
+
+# Web server settings
+web_server:
+  host: "localhost"
+  port: 8080
+  use_https: false 

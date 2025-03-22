@@ -2,10 +2,12 @@
 
 import os
 import json
-from typing import List
+import threading
+from typing import List, Optional
 import whisper
 from ..logging import get_logger
 from ..models import Segment, Transcript
+from .message_broker import Message, MessageBroker, Topics
 
 logger = get_logger(__name__)
 
@@ -16,10 +18,21 @@ class TranscriptionError(Exception):
 class Transcriber:
     """Service for transcribing audio files to text."""
     
-    def __init__(self, model_name: str = "base"):
-        """Initialize the transcriber with the specified model."""
+    def __init__(self, 
+                 message_broker: Optional[MessageBroker] = None, 
+                 model_name: str = "base"):
+        """Initialize the transcriber with the specified model and message broker."""
         self.model_name = model_name
         self._model = None
+        self.message_broker = message_broker
+        self.running = False
+        
+        # Subscribe to transcription requests if message broker is provided
+        if self.message_broker:
+            self.message_broker.subscribe(
+                Topics.TRANSCRIBE_REQUEST,
+                self._handle_transcription_request
+            )
     
     @property
     def model(self):
@@ -84,4 +97,55 @@ class Transcriber:
             
         except Exception as e:
             logger.error("transcription_failed", file=audio_file, error=str(e))
-            raise TranscriptionError(f"Failed to transcribe audio: {str(e)}") 
+            raise TranscriptionError(f"Failed to transcribe audio: {str(e)}")
+    
+    def _handle_transcription_request(self, message: Message) -> None:
+        """Handle a transcription request message."""
+        if not self.running:
+            logger.warning("transcriber_not_running")
+            return
+        
+        file_path = message.data.get("file_path")
+        correlation_id = message.correlation_id
+        
+        if not file_path:
+            logger.warning("invalid_transcription_request", message_id=message.message_id)
+            self.message_broker.publish(Message(
+                topic=Topics.TRANSCRIBE_FAILED,
+                data={"error": "No file path provided"},
+                correlation_id=correlation_id
+            ))
+            return
+        
+        try:
+            transcript = self.transcribe(file_path)
+            transcript_path = f"{file_path}.transcript.json"
+            
+            self.message_broker.publish(Message(
+                topic=Topics.TRANSCRIBE_COMPLETE,
+                data={
+                    "file_path": file_path,
+                    "transcript_path": transcript_path
+                },
+                correlation_id=correlation_id
+            ))
+        except Exception as e:
+            logger.error("transcription_request_failed", file=file_path, error=str(e))
+            self.message_broker.publish(Message(
+                topic=Topics.TRANSCRIBE_FAILED,
+                data={
+                    "file_path": file_path,
+                    "error": str(e)
+                },
+                correlation_id=correlation_id
+            ))
+    
+    def start(self) -> None:
+        """Start the transcriber service."""
+        self.running = True
+        logger.info("transcriber_started", model=self.model_name)
+    
+    def stop(self) -> None:
+        """Stop the transcriber service."""
+        self.running = False
+        logger.info("transcriber_stopped") 

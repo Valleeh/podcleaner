@@ -4,7 +4,7 @@ _pycache_
 secrets.json
 podcasts
 debug_output
-
+test_env
 *.pyc
 __pycache__/
 .env

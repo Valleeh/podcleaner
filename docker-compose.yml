@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  # Web API service
+  web:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.web
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./secrets.json:/app/secrets.json
+      - ./podcasts:/app/podcasts
+      - ./debug_output:/app/debug_output
+    environment:
+      - SERVICE_TYPE=web
+      - MQTT_HOST=${MQTT_HOST:-192.168.178.101}
+      - MQTT_PORT=${MQTT_PORT:-1883}
+      - WEB_PORT=${WEB_PORT:-8080}
+    restart: unless-stopped
+
+  # Transcription service
+  transcriber:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.transcriber
+    volumes:
+      - ./secrets.json:/app/secrets.json
+      - ./podcasts:/app/podcasts
+      - ./debug_output:/app/debug_output
+    environment:
+      - SERVICE_TYPE=transcriber
+      - MQTT_HOST=${MQTT_HOST:-192.168.178.101}
+      - MQTT_PORT=${MQTT_PORT:-1883}
+    restart: unless-stopped
+
+  # Ad detection service
+  ad-detector:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.ad-detector
+    volumes:
+      - ./secrets.json:/app/secrets.json
+      - ./podcasts:/app/podcasts
+      - ./debug_output:/app/debug_output
+    environment:
+      - SERVICE_TYPE=ad-detector
+      - MQTT_HOST=${MQTT_HOST:-192.168.178.101}
+      - MQTT_PORT=${MQTT_PORT:-1883}
+    restart: unless-stopped
+
+  # Audio processor service
+  audio-processor:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.audio-processor
+    volumes:
+      - ./secrets.json:/app/secrets.json
+      - ./podcasts:/app/podcasts
+      - ./debug_output:/app/debug_output
+    environment:
+      - SERVICE_TYPE=audio-processor
+      - MQTT_HOST=${MQTT_HOST:-192.168.178.101}
+      - MQTT_PORT=${MQTT_PORT:-1883}
+    restart: unless-stopped 
