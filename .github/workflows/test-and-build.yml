@@ -27,19 +27,31 @@ jobs:
         # Install package in development mode
         pip install -e .
     
-    - name: Run tests
+    - name: Run tests with coverage
       run: |
-        pytest -xvs --cov=podcleaner tests/
-    
-    - name: Generate coverage report
+        pytest -xvs --cov=podcleaner --cov-report=term --cov-report=html tests/
+        
+    - name: Check coverage threshold
       run: |
-        pytest --cov=podcleaner --cov-report=xml tests/
+        # Extract coverage percentage and check if it meets threshold
+        coverage_percent=$(pytest --cov=podcleaner tests/ | grep TOTAL | awk '{print $NF}' | sed 's/%//')
+        echo "Total coverage: $coverage_percent%"
+        
+        # Set your desired coverage threshold here
+        threshold=70
+        
+        if (( $(echo "$coverage_percent < $threshold" | bc -l) )); then
+          echo "Coverage is below threshold of $threshold%"
+          exit 1
+        else
+          echo "Coverage meets threshold of $threshold%"
+        fi
     
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
+    - name: Archive code coverage results
+      uses: actions/upload-artifact@v3
       with:
-        file: ./coverage.xml
-        fail_ci_if_error: true
+        name: code-coverage-report
+        path: htmlcov/
   
   build:
     runs-on: ubuntu-latest
