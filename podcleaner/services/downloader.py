@@ -8,8 +8,9 @@ from typing import Optional, Set, Dict
 import requests
 import feedparser
 from ..logging import get_logger
-from ..config import AudioConfig
+from ..config import AudioConfig, Config
 from .message_broker import Message, MessageBroker, Topics
+from .object_storage import ObjectStorage, ObjectStorageError
 
 logger = get_logger(__name__)
 
@@ -20,12 +21,19 @@ class DownloadError(Exception):
 class PodcastDownloader:
     """Service for downloading podcast audio files."""
     
-    def __init__(self, config: AudioConfig, message_broker: MessageBroker):
+    def __init__(self, config: Config, message_broker: MessageBroker):
         """Initialize the downloader with configuration and message broker."""
-        self.download_dir = config.download_dir
+        self.audio_config = config.audio
+        self.download_dir = config.audio.download_dir
         self.message_broker = message_broker
         self.running = False
-        os.makedirs(self.download_dir, exist_ok=True)
+        
+        # Initialize object storage
+        self.object_storage = ObjectStorage(config.object_storage)
+        
+        # Create local directory for downloads if using local storage
+        if config.object_storage.provider == "local":
+            os.makedirs(self.download_dir, exist_ok=True)
         
         # Track files being processed and already processed
         self.files_in_process = set()
@@ -97,7 +105,14 @@ class PodcastDownloader:
     def _generate_file_path(self, url: str) -> str:
         """Generate a unique file path for the podcast URL."""
         hash_key = hashlib.md5(url.encode()).hexdigest()
-        return os.path.join(self.download_dir, hash_key)
+        
+        # Generate a storage key for the object
+        storage_key = f"podcasts/{hash_key}"
+        
+        # For backward compatibility, also return a local path
+        local_path = os.path.join(self.download_dir, hash_key)
+        
+        return storage_key
     
     def download(self, url: str) -> str:
         """
@@ -107,37 +122,55 @@ class PodcastDownloader:
             url: The URL of the podcast to download.
             
         Returns:
-            str: Path to the downloaded file.
+            str: Path or key to the downloaded file.
             
         Raises:
             DownloadError: If the download fails.
         """
-        file_path = self._generate_file_path(url)
+        storage_key = self._generate_file_path(url)
         
-        if os.path.exists(file_path):
-            logger.info("podcast_exists", path=file_path)
-            return file_path
+        # Check if the file already exists in storage
+        if self.object_storage.exists(storage_key):
+            logger.info("podcast_exists", key=storage_key)
+            return storage_key
         
         try:
             logger.info("downloading_podcast", url=url)
             response = requests.get(url, stream=True)
             response.raise_for_status()
             
-            with open(file_path, 'wb') as f:
+            # Create a temporary file to download to
+            temp_file_path = os.path.join(self.debug_dir, f"temp_{hashlib.md5(url.encode()).hexdigest()}")
+            
+            with open(temp_file_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
+            
+            # Upload to object storage
+            try:
+                self.object_storage.upload(temp_file_path, storage_key)
+                logger.info("podcast_uploaded", key=storage_key)
+                
+                # Clean up temporary file
+                os.remove(temp_file_path)
+            except ObjectStorageError as e:
+                logger.error("storage_upload_failed", url=url, key=storage_key, error=str(e))
+                raise DownloadError(f"Failed to upload podcast to storage: {str(e)}")
             
             # Add to processed files
             with self.file_lock:
                 self.processed_files.add(url)
                 self._save_processed_data()
                 
-            logger.info("download_complete", path=file_path)
-            return file_path
+            logger.info("download_complete", path=storage_key)
+            return storage_key
             
         except requests.RequestException as e:
             logger.error("download_failed", url=url, error=str(e))
             raise DownloadError(f"Failed to download podcast: {str(e)}")
+        except Exception as e:
+            logger.error("unexpected_download_error", url=url, error=str(e))
+            raise DownloadError(f"Unexpected error during download: {str(e)}")
     
     def download_rss(self, rss_url: str) -> dict:
         """
@@ -215,14 +248,14 @@ class PodcastDownloader:
         
         # Check if URL is already processed or in process
         with self.file_lock:
-            if url in self.processed_files and os.path.exists(self._generate_file_path(url)):
+            if url in self.processed_files and self.object_storage.exists(self._generate_file_path(url)):
                 logger.info("file_already_downloaded", url=url)
-                file_path = self._generate_file_path(url)
+                storage_key = self._generate_file_path(url)
                 self.message_broker.publish(Message(
                     topic=Topics.DOWNLOAD_COMPLETE,
                     data={
                         "url": url,
-                        "file_path": file_path,
+                        "file_path": storage_key,
                         "already_processed": True
                     },
                     correlation_id=correlation_id
@@ -245,7 +278,7 @@ class PodcastDownloader:
             self.files_in_process.add(url)
         
         try:
-            file_path = self.download(url)
+            storage_key = self.download(url)
             
             # Remove from in-process list
             with self.file_lock:
@@ -256,7 +289,7 @@ class PodcastDownloader:
                 topic=Topics.DOWNLOAD_COMPLETE,
                 data={
                     "url": url,
-                    "file_path": file_path
+                    "file_path": storage_key
                 },
                 correlation_id=correlation_id
             ))

@@ -1,65 +1,159 @@
-version: '3.8'
+version: '3'
 
 services:
-  # Web API service
+  # MQTT message broker
+  mqtt:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./dockerfiles/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+    networks:
+      - podcleaner-network
+
+  # MinIO object storage
+  minio:
+    image: minio/minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio-data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - podcleaner-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # Initialize MinIO with required buckets
+  minio-init:
+    image: minio/mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc config host add myminio http://minio:9000 minioadmin minioadmin;
+      /usr/bin/mc mb myminio/podcleaner;
+      /usr/bin/mc policy set public myminio/podcleaner;
+      exit 0;
+      "
+    networks:
+      - podcleaner-network
+
+  # Web server
   web:
-    build:
+    build: 
       context: .
-      dockerfile: dockerfiles/Dockerfile.web
+      dockerfile: dockerfiles/Dockerfile
     ports:
       - "8080:8080"
-    volumes:
-      - ./secrets.json:/app/secrets.json
-      - ./podcasts:/app/podcasts
-      - ./debug_output:/app/debug_output
+    depends_on:
+      - mqtt
+      - minio
     environment:
-      - SERVICE_TYPE=web
-      - MQTT_HOST=${MQTT_HOST:-192.168.178.101}
-      - MQTT_PORT=${MQTT_PORT:-1883}
-      - WEB_PORT=${WEB_PORT:-8080}
-    restart: unless-stopped
+      - MQTT_HOST=mqtt
+      - MQTT_PORT=1883
+      - WEB_HOST=0.0.0.0
+      - WEB_PORT=8080
+      - OBJECT_STORAGE_PROVIDER=minio
+      - OBJECT_STORAGE_BUCKET_NAME=podcleaner
+      - OBJECT_STORAGE_ENDPOINT_URL=http://minio:9000
+      - OBJECT_STORAGE_ACCESS_KEY=minioadmin
+      - OBJECT_STORAGE_SECRET_KEY=minioadmin
+    command: ["python", "-m", "podcleaner", "service", "--service", "web"]
+    networks:
+      - podcleaner-network
 
-  # Transcription service
+  # Transcriber service
   transcriber:
-    build:
+    build: 
       context: .
-      dockerfile: dockerfiles/Dockerfile.transcriber
-    volumes:
-      - ./secrets.json:/app/secrets.json
-      - ./podcasts:/app/podcasts
-      - ./debug_output:/app/debug_output
+      dockerfile: dockerfiles/Dockerfile
+    depends_on:
+      - mqtt
+      - minio
     environment:
-      - SERVICE_TYPE=transcriber
-      - MQTT_HOST=${MQTT_HOST:-192.168.178.101}
-      - MQTT_PORT=${MQTT_PORT:-1883}
-    restart: unless-stopped
+      - MQTT_HOST=mqtt
+      - MQTT_PORT=1883
+      - OBJECT_STORAGE_PROVIDER=minio
+      - OBJECT_STORAGE_BUCKET_NAME=podcleaner
+      - OBJECT_STORAGE_ENDPOINT_URL=http://minio:9000
+      - OBJECT_STORAGE_ACCESS_KEY=minioadmin
+      - OBJECT_STORAGE_SECRET_KEY=minioadmin
+    command: ["python", "-m", "podcleaner", "service", "--service", "transcriber"]
+    networks:
+      - podcleaner-network
 
-  # Ad detection service
+  # Ad detector service
   ad-detector:
-    build:
+    build: 
       context: .
-      dockerfile: dockerfiles/Dockerfile.ad-detector
-    volumes:
-      - ./secrets.json:/app/secrets.json
-      - ./podcasts:/app/podcasts
-      - ./debug_output:/app/debug_output
+      dockerfile: dockerfiles/Dockerfile
+    depends_on:
+      - mqtt
+      - minio
     environment:
-      - SERVICE_TYPE=ad-detector
-      - MQTT_HOST=${MQTT_HOST:-192.168.178.101}
-      - MQTT_PORT=${MQTT_PORT:-1883}
-    restart: unless-stopped
+      - MQTT_HOST=mqtt
+      - MQTT_PORT=1883
+      - OBJECT_STORAGE_PROVIDER=minio
+      - OBJECT_STORAGE_BUCKET_NAME=podcleaner
+      - OBJECT_STORAGE_ENDPOINT_URL=http://minio:9000
+      - OBJECT_STORAGE_ACCESS_KEY=minioadmin
+      - OBJECT_STORAGE_SECRET_KEY=minioadmin
+    command: ["python", "-m", "podcleaner", "service", "--service", "ad-detector"]
+    networks:
+      - podcleaner-network
 
   # Audio processor service
   audio-processor:
-    build:
+    build: 
       context: .
-      dockerfile: dockerfiles/Dockerfile.audio-processor
-    volumes:
-      - ./secrets.json:/app/secrets.json
-      - ./podcasts:/app/podcasts
-      - ./debug_output:/app/debug_output
+      dockerfile: dockerfiles/Dockerfile
+    depends_on:
+      - mqtt
+      - minio
     environment:
-      - SERVICE_TYPE=audio-processor
-      - MQTT_HOST=${MQTT_HOST:-192.168.178.101}
-      - MQTT_PORT=${MQTT_PORT:-1883}
-    restart: unless-stopped 
+      - MQTT_HOST=mqtt
+      - MQTT_PORT=1883
+      - OBJECT_STORAGE_PROVIDER=minio
+      - OBJECT_STORAGE_BUCKET_NAME=podcleaner
+      - OBJECT_STORAGE_ENDPOINT_URL=http://minio:9000
+      - OBJECT_STORAGE_ACCESS_KEY=minioadmin
+      - OBJECT_STORAGE_SECRET_KEY=minioadmin
+    command: ["python", "-m", "podcleaner", "service", "--service", "audio-processor"]
+    networks:
+      - podcleaner-network
+
+  # Downloader service
+  downloader:
+    build: 
+      context: .
+      dockerfile: dockerfiles/Dockerfile
+    depends_on:
+      - mqtt
+      - minio
+    environment:
+      - MQTT_HOST=mqtt
+      - MQTT_PORT=1883
+      - OBJECT_STORAGE_PROVIDER=minio
+      - OBJECT_STORAGE_BUCKET_NAME=podcleaner
+      - OBJECT_STORAGE_ENDPOINT_URL=http://minio:9000
+      - OBJECT_STORAGE_ACCESS_KEY=minioadmin
+      - OBJECT_STORAGE_SECRET_KEY=minioadmin
+    command: ["python", "-m", "podcleaner", "service", "--service", "downloader"]
+    networks:
+      - podcleaner-network
+
+networks:
+  podcleaner-network:
+    driver: bridge
+
+volumes:
+  minio-data: 

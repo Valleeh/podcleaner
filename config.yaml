@@ -15,15 +15,45 @@ log_level: "INFO"
 message_broker:
   type: "mqtt"  # Options: "mqtt", "in_memory"
   mqtt:
-    # Host and credentials are loaded from secrets.json
-    host: null
-    port: null
-    username: null
-    password: null
-    client_id: null
+    host: ${MQTT_HOST:-localhost}
+    port: ${MQTT_PORT:-1883}
+    username: ${MQTT_USERNAME:-}
+    password: ${MQTT_PASSWORD:-}
+    client_id_prefix: podcleaner
 
 # Web server settings
 web_server:
-  host: "localhost"
-  port: 8080
-  use_https: false 
+  host: ${WEB_HOST:-localhost}
+  port: ${WEB_PORT:-8080}
+  use_https: false
+  base_url: ${WEB_BASE_URL:-http://localhost:8080}
+
+# Object storage settings
+object_storage:
+  provider: ${OBJECT_STORAGE_PROVIDER:-local}
+  bucket_name: ${OBJECT_STORAGE_BUCKET_NAME:-podcleaner}
+  local:
+    base_path: ${OBJECT_STORAGE_LOCAL_PATH:-storage}
+  s3:
+    region: ${OBJECT_STORAGE_REGION:-us-east-1}
+    endpoint_url: ${OBJECT_STORAGE_ENDPOINT_URL:-}
+    access_key: ${OBJECT_STORAGE_ACCESS_KEY:-}
+    secret_key: ${OBJECT_STORAGE_SECRET_KEY:-}
+
+# Paths
+paths:
+  podcasts: ${PODCASTS_DIR:-podcasts}
+  debug: ${DEBUG_DIR:-debug_output}
+
+# Transcriber settings
+transcriber:
+  # 'local' for offline Whisper or 'openai' for OpenAI API
+  engine: ${TRANSCRIBER_ENGINE:-local}
+  model: ${TRANSCRIBER_MODEL:-base}
+  openai_model: ${OPENAI_MODEL:-whisper-1}
+  openai_api_key: ${OPENAI_API_KEY:-}
+
+# Ad detector settings
+ad_detector:
+  # 'simple' for keyword-based or 'llm' for LLM-based
+  engine: ${AD_DETECTOR_ENGINE:-simple} 

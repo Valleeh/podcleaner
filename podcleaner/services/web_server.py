@@ -4,13 +4,18 @@ import os
 import json
 import uuid
 import time
-from typing import Dict, Optional
+import html
+import http.server
+import socketserver
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs
+import re
+import urllib.parse
 import xml.etree.ElementTree as ET
+from typing import Dict, List, Optional, Tuple, Any
 from ..logging import get_logger
+from ..config import Config
 from .message_broker import Message, MessageBroker, Topics
+from .object_storage import ObjectStorage, ObjectStorageError
 from ..services.downloader import PodcastDownloader
 from ..config import AudioConfig
 
@@ -35,7 +40,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             elif path == "/status":
                 self._handle_status_request(query)
             elif path.startswith("/download/"):
-                self._handle_download_request(path.split("/download/")[1])
+                self._handle_download_request()
             else:
                 self.send_error(404, "Not Found")
         except BrokenPipeError:
@@ -65,37 +70,11 @@ class RequestHandler(BaseHTTPRequestHandler):
         
         # Check if this is a direct request for an MP3 file
         file_path = server.get_processed_file_path(url)
-        if file_path and os.path.exists(file_path):
-            # Serve the file directly
-            try:
-                file_size = os.path.getsize(file_path)
-                self.send_response(200)
-                self.send_header("Content-Type", "audio/mpeg")
-                self.send_header("Content-Length", str(file_size))
-                self.send_header("Content-Disposition", f'attachment; filename="{os.path.basename(file_path)}"')
-                self.end_headers()
-                
-                with open(file_path, "rb") as f:
-                    try:
-                        # Read and send the file in chunks to avoid loading the entire file into memory
-                        chunk_size = 64 * 1024  # 64KB chunks
-                        chunk = f.read(chunk_size)
-                        while chunk:
-                            self.wfile.write(chunk)
-                            chunk = f.read(chunk_size)
-                    except (BrokenPipeError, ConnectionResetError):
-                        # Client disconnected, log and return silently
-                        logger.info("client_disconnected_during_download", url=url)
-                        return
-                return
-            except (BrokenPipeError, ConnectionResetError):
-                # Client disconnected, log and return silently
-                logger.info("client_disconnected_during_download", url=url)
-                return
-            except Exception as e:
-                logger.error("file_serve_error", url=url, path=file_path, error=str(e))
-                self.send_error(500, "Internal Server Error")
-                return
+        if file_path and server.object_storage.exists(file_path):
+            # Serve the file directly using the _serve_file method
+            file_name = os.path.basename(url)
+            server._serve_file(self, file_path, file_name)
+            return
         
         # Store request information
         server.add_pending_request(request_id, "process", url)
@@ -262,76 +241,55 @@ class RequestHandler(BaseHTTPRequestHandler):
             logger.info("client_disconnected_during_status_response", request_id=request_id)
             return
     
-    def _handle_download_request(self, file_id):
-        """Handle download request for processed file."""
-        if not file_id:
+    def _handle_download_request(self):
+        """Handle a request to download a processed file."""
+        path_parts = self.path.split('/')
+        if len(path_parts) < 3:
             self.send_error(400, "Missing file ID")
             return
         
-        # Get the web server instance
+        file_id = path_parts[2]
         server = self.server.web_server
         
-        # Get file path
+        # Get the file path from the file ID
         file_path = server.get_file_path(file_id)
-        if not file_path or not os.path.exists(file_path):
+        if not file_path:
             self.send_error(404, "File not found")
             return
         
-        # Send file
-        try:
-            file_size = os.path.getsize(file_path)
-            self.send_response(200)
-            self.send_header("Content-Type", "audio/mpeg")
-            self.send_header("Content-Length", str(file_size))
-            self.send_header("Content-Disposition", f'attachment; filename="{os.path.basename(file_path)}"')
-            self.end_headers()
-            
-            with open(file_path, "rb") as f:
-                try:
-                    # Read and send the file in chunks to avoid loading the entire file into memory
-                    chunk_size = 64 * 1024  # 64KB chunks
-                    chunk = f.read(chunk_size)
-                    while chunk:
-                        self.wfile.write(chunk)
-                        chunk = f.read(chunk_size)
-                except (BrokenPipeError, ConnectionResetError):
-                    # Client disconnected, log and return silently
-                    logger.info("client_disconnected_during_download", file_id=file_id)
-                    return
-        except (BrokenPipeError, ConnectionResetError):
-            # Client disconnected, log and return silently
-            logger.info("client_disconnected_during_download", file_id=file_id)
-            return
-        except Exception as e:
-            logger.error("file_download_error", file_id=file_id, path=file_path, error=str(e))
-            self.send_error(500, "Internal Server Error")
+        # Determine a friendly filename for Content-Disposition
+        file_name = f"podcast_{file_id}.mp3"
+        
+        # Serve the file
+        server._serve_file(self, file_path, file_name)
 
 class WebServer:
-    """Web server for PodCleaner API."""
+    """Web server for handling podcast processing requests."""
     
-    def __init__(
-        self, host: str = "localhost", port: int = 8080, 
-        message_broker: Optional[MessageBroker] = None,
-        use_https: bool = False
-    ):
-        """Initialize the web server with configuration."""
-        self.host = host
-        self.port = port
+    def __init__(self, config: Config, message_broker: MessageBroker):
+        """Initialize the web server."""
+        self.config = config
+        self.host = config.web_server.host
+        self.port = config.web_server.port
         self.message_broker = message_broker
-        self.server = None
-        self.server_thread = None
-        self.running = False
-        self.pending_requests = {}  # Map request IDs to status objects
-        self.file_mappings = {}  # Map file IDs to file paths
-        self.url_to_file = {}  # Map original URLs to processed file paths
-        self.processed_rss_feeds = {}  # Map RSS URLs to processed podcast info
-        self.use_https = use_https  # Whether to use HTTPS in URLs
         
-        # Subscribe to message broker topics if provided
-        if self.message_broker:
-            self._subscribe_to_topics()
+        # Initialize object storage
+        self.object_storage = ObjectStorage(config.object_storage)
+        
+        # State tracking
+        self.server = None
+        self.running = False
+        self.pending_requests = {}
+        self.file_mappings = {}
+        self.url_to_file = {}
+        self.cached_podcast_info = {}
+        
+        # Subscribe to message broker topics
+        self._setup_subscriptions()
+        
+        logger.info("web_server_initialized", host=self.host, port=self.port)
     
-    def _subscribe_to_topics(self):
+    def _setup_subscriptions(self):
         """Subscribe to message broker topics."""
         # Download results
         self.message_broker.subscribe(
@@ -455,7 +413,7 @@ class WebServer:
     
     def get_cached_podcast_info(self, rss_url: str) -> Optional[dict]:
         """Get cached podcast info for an RSS URL if it exists."""
-        return self.processed_rss_feeds.get(rss_url)
+        return self.cached_podcast_info.get(rss_url)
     
     def generate_rss_xml(self, podcast_info: dict) -> str:
         """Generate RSS XML from podcast info."""
@@ -670,7 +628,7 @@ class WebServer:
         
         # Generate download URL
         host = self.host if self.host != "0.0.0.0" else "localhost"
-        protocol = "https" if self.use_https else "http"
+        protocol = "https" if self.config.web_server.use_https else "http"
         download_url = f"{protocol}://{host}:{self.port}/download/{file_id}"
         
         self.update_request_status(
@@ -720,7 +678,7 @@ class WebServer:
             return
         
         # Cache podcast info for future requests
-        self.processed_rss_feeds[rss_url] = podcast_info
+        self.cached_podcast_info[rss_url] = podcast_info
         
         self.update_request_status(
             request_id,
@@ -765,4 +723,46 @@ class WebServer:
             logger.warning("missing_correlation_id_or_status", topic=message.topic)
             return
         
-        self.update_request_status(request_id, status, step) 
+        self.update_request_status(request_id, status, step)
+    
+    def _serve_file(self, handler, file_path: str, file_name: Optional[str] = None):
+        """Serve a file to the client."""
+        try:
+            # Determine content type based on file extension
+            content_type = "application/octet-stream"
+            if file_path.endswith(".mp3"):
+                content_type = "audio/mpeg"
+            elif file_path.endswith(".wav"):
+                content_type = "audio/wav"
+            
+            # Get the file data from object storage
+            try:
+                file_data = self.object_storage.download(file_path)
+                file_size = len(file_data)
+                
+                # Set up response headers
+                handler.send_response(200)
+                handler.send_header("Content-Type", content_type)
+                handler.send_header("Content-Length", str(file_size))
+                
+                # Add Content-Disposition header if file_name is provided
+                if file_name:
+                    handler.send_header(
+                        "Content-Disposition", 
+                        f'attachment; filename="{file_name}"'
+                    )
+                
+                handler.end_headers()
+                
+                # Send the file data
+                handler.wfile.write(file_data)
+                logger.info("file_served", path=file_path, size=file_size)
+                
+            except ObjectStorageError as e:
+                logger.error("file_serving_failed", path=file_path, error=str(e))
+                handler.send_error(404, f"File not found: {file_path}")
+                
+        except (BrokenPipeError, ConnectionResetError):
+            # Client disconnected, log and return silently
+            logger.info("client_disconnected_during_download", path=file_path)
+            return 

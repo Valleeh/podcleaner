@@ -4,7 +4,7 @@ import os
 import json
 import requests
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Literal
 import yaml
 from dotenv import load_dotenv
 
@@ -90,6 +90,49 @@ class WebServerConfig:
         )
 
 @dataclass
+class ObjectStorageConfig:
+    """Configuration for object storage."""
+    provider: str = "local"  # Options: "local", "s3", "gcs", "azure", "minio"
+    
+    # Common settings
+    bucket_name: str = "podcleaner"
+    region: Optional[str] = None
+    
+    # Endpoint for non-AWS providers like MinIO or localstack
+    endpoint_url: Optional[str] = None
+    
+    # Authentication
+    access_key: Optional[str] = None
+    secret_key: Optional[str] = None
+    
+    # Local storage settings (used if provider is "local")
+    local_storage_path: str = "podcasts"
+    
+    # Connection settings
+    connect_timeout: int = 5
+    read_timeout: int = 30
+    max_retries: int = 3
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'ObjectStorageConfig':
+        """Create ObjectStorageConfig from dictionary."""
+        if not data:
+            return cls()
+            
+        return cls(
+            provider=data.get("provider", "local"),
+            bucket_name=data.get("bucket_name", "podcleaner"),
+            region=data.get("region"),
+            endpoint_url=data.get("endpoint_url"),
+            access_key=data.get("access_key"),
+            secret_key=data.get("secret_key"),
+            local_storage_path=data.get("local_storage_path", "podcasts"),
+            connect_timeout=data.get("connect_timeout", 5),
+            read_timeout=data.get("read_timeout", 30),
+            max_retries=data.get("max_retries", 3)
+        )
+
+@dataclass
 class Config:
     """Main configuration class."""
     llm: LLMConfig
@@ -97,6 +140,7 @@ class Config:
     log_level: str = "INFO"
     message_broker: MessageBrokerConfig = None
     web_server: WebServerConfig = None
+    object_storage: ObjectStorageConfig = None
 
     def __post_init__(self):
         """Initialize default configs if not provided."""
@@ -104,68 +148,68 @@ class Config:
             self.message_broker = MessageBrokerConfig()
         if self.web_server is None:
             self.web_server = WebServerConfig()
+        if self.object_storage is None:
+            self.object_storage = ObjectStorageConfig()
 
     def validate(self):
         """Validate the configuration."""
         self.llm.validate()
 
 def load_config(config_path: str = "config.yaml") -> Config:
-    """Load configuration from file and environment."""
+    """Load configuration from file."""
+    # Load environment variables
     load_dotenv()
     
-    # Default configuration
-    config_dict = {
-        "llm": {
-            "model_name": "gpt-4o-mini",
-            "chunk_size": 600,
-            "max_attempts": 3,
-            "temperature": 0.1
-        },
-        "audio": {
-            "min_duration": 5.0,
-            "max_gap": 20.0,
-            "download_dir": "podcasts"
-        },
-        "message_broker": {
-            "type": "in_memory",
-            "mqtt": {
-                "host": "localhost",
-                "port": 1883
-            }
-        },
-        "web_server": {
-            "host": "localhost",
-            "port": 8080,
-            "use_https": False
-        },
-        "log_level": "INFO"
-    }
+    config_dict = {}
+    if config_path and os.path.exists(config_path):
+        try:
+            with open(config_path, 'r') as f:
+                config_dict = yaml.safe_load(f)
+        except Exception as e:
+            raise ValueError(f"Failed to load config from {config_path}: {str(e)}")
     
-    # Override with file configuration if exists and config_path is not None
-    if config_path is not None and os.path.exists(config_path):
-        with open(config_path) as f:
-            file_config = yaml.safe_load(f)
-            if file_config:
-                # Merge nested dictionaries
-                for key, value in file_config.items():
-                    if isinstance(value, dict) and key in config_dict and isinstance(config_dict[key], dict):
-                        config_dict[key].update(value)
-                    else:
-                        config_dict[key] = value
-    
-    # Create configuration objects
-    message_broker_config = MessageBrokerConfig.from_dict(config_dict.get("message_broker", {}))
-    web_server_config = WebServerConfig.from_dict(config_dict.get("web_server", {}))
-    
-    config = Config(
-        llm=LLMConfig(**config_dict["llm"]),
-        audio=AudioConfig(**config_dict["audio"]),
-        log_level=config_dict["log_level"],
-        message_broker=message_broker_config,
-        web_server=web_server_config
+    # Load LLM config
+    llm_config_data = config_dict.get("llm", {})
+    llm_config = LLMConfig(
+        model_name=llm_config_data.get("model_name", "gpt-3.5-turbo"),
+        api_key=llm_config_data.get("api_key") or os.environ.get("OPENAI_API_KEY"),
+        base_url=llm_config_data.get("base_url") or os.environ.get("OPENAI_API_BASE"),
+        chunk_size=llm_config_data.get("chunk_size", 600),
+        max_attempts=llm_config_data.get("max_attempts", 3),
+        temperature=llm_config_data.get("temperature", 0.1)
     )
     
-    # Validate configuration
-    config.validate()
+    # Load audio config
+    audio_config_data = config_dict.get("audio", {})
+    audio_config = AudioConfig(
+        min_duration=audio_config_data.get("min_duration", 5.0),
+        max_gap=audio_config_data.get("max_gap", 20.0),
+        download_dir=audio_config_data.get("download_dir", "podcasts")
+    )
+    
+    # Load message broker config
+    message_broker_config = MessageBrokerConfig.from_dict(
+        config_dict.get("message_broker", {})
+    )
+    
+    # Load web server config
+    web_server_config = WebServerConfig.from_dict(
+        config_dict.get("web_server", {})
+    )
+    
+    # Load object storage config
+    object_storage_config = ObjectStorageConfig.from_dict(
+        config_dict.get("object_storage", {})
+    )
+    
+    # Create the config
+    config = Config(
+        llm=llm_config,
+        audio=audio_config,
+        log_level=config_dict.get("log_level", "INFO"),
+        message_broker=message_broker_config,
+        web_server=web_server_config,
+        object_storage=object_storage_config
+    )
     
     return config 

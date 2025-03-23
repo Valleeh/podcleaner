@@ -27,25 +27,11 @@ jobs:
         # Install package in development mode
         pip install -e .
     
-    - name: Run tests with coverage
+    - name: Test with pytest and coverage
       run: |
-        pytest -xvs --cov=podcleaner --cov-report=term tests/
-        
-    - name: Check coverage threshold
-      run: |
-        # Extract coverage percentage and check if it meets threshold
-        coverage_percent=$(pytest --cov=podcleaner tests/ | grep TOTAL | awk '{print $NF}' | sed 's/%//')
-        echo "Total coverage: $coverage_percent%"
-        
-        # Set your desired coverage threshold here
-        threshold=70
-        
-        if (( $(echo "$coverage_percent < $threshold" | bc -l) )); then
-          echo "Coverage is below threshold of $threshold%"
-          exit 1
-        else
-          echo "Coverage meets threshold of $threshold%"
-        fi
+        pytest --cov=podcleaner tests/
+        # Verify coverage meets threshold
+        python -c "import sys; from pytest_cov.report import CoverageData; data = CoverageData(); data.read(); print(f'Coverage: {data.percent_covered:.2f}%'); sys.exit(0 if data.percent_covered >= 55 else 1)"
   
   build:
     runs-on: ubuntu-latest

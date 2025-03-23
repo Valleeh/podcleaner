@@ -119,8 +119,7 @@ def main():
     # Initialize and start the requested service
     if service_name == "web" or service_name == "all":
         web_server = WebServer(
-            host=config.web.host,
-            port=config.web.port,
+            config=config,
             message_broker=message_broker
         )
         web_server.start()
@@ -130,8 +129,8 @@ def main():
     if service_name == "transcriber" or service_name == "all":
         model_name = args.model_name or "base"
         transcriber = Transcriber(
-            message_broker=message_broker,
-            model_name=model_name
+            config=config.llm,
+            message_broker=message_broker
         )
         transcriber.start()
         services.append(transcriber)
@@ -157,7 +156,7 @@ def main():
     
     if service_name == "downloader" or service_name == "all":
         downloader = PodcastDownloader(
-            config=config.audio,
+            config=config,
             message_broker=message_broker
         )
         downloader.start()
