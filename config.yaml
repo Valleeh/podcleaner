@@ -19,7 +19,6 @@ message_broker:
     port: ${MQTT_PORT:-1883}
     username: ${MQTT_USERNAME:-}
     password: ${MQTT_PASSWORD:-}
-    client_id_prefix: podcleaner
 
 # Web server settings
 web_server:

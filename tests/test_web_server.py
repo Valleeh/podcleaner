@@ -11,6 +11,7 @@ import http.client
 import urllib.parse
 from podcleaner.services.web_server import WebServer
 from podcleaner.services.message_broker import Message, Topics
+from podcleaner.config import Config, WebServerConfig, ObjectStorageConfig, LLMConfig, AudioConfig, MessageBrokerConfig
 
 @pytest.fixture
 def web_server():
@@ -18,17 +19,31 @@ def web_server():
     # Create a message broker mock
     message_broker = MagicMock()
     
-    # Create a web server with a test port
+    # Create a web server config with a test port
+    web_config = WebServerConfig(host="localhost", port=8081)
+    object_storage_config = ObjectStorageConfig(provider="local")
+    llm_config = LLMConfig(model_name="test-model")
+    audio_config = AudioConfig()
+    message_broker_config = MessageBrokerConfig()
+    
+    config = Config(
+        llm=llm_config,
+        audio=audio_config,
+        web_server=web_config,
+        object_storage=object_storage_config,
+        message_broker=message_broker_config
+    )
+    
+    # Create a web server with the config
     server = WebServer(
-        host="localhost",
-        port=8081,  # Use a non-standard port for testing
+        config=config,
         message_broker=message_broker
     )
     
     # Override the request tracking storage
     server.pending_requests = {}
-    server.file_mapping = {}
-    server.podcast_cache = {}
+    server.file_mappings = {}  # Fix this to match the actual attribute name
+    server.cached_podcast_info = {}  # Fix this to match the actual attribute name
     
     return server
 
@@ -36,10 +51,8 @@ def test_init(web_server):
     """Test web server initialization."""
     assert web_server.host == "localhost"
     assert web_server.port == 8081
-    assert web_server.use_https is False
     assert web_server.running is False
     assert isinstance(web_server.pending_requests, dict)
-    assert isinstance(web_server.file_mapping, dict)
 
 def test_add_pending_request(web_server):
     """Test adding a pending request."""
@@ -151,32 +164,47 @@ def test_start_and_stop():
     # Create a message broker mock
     message_broker = MagicMock()
     
-    # Create a web server with a test port in a separate thread
-    server = WebServer(
-        host="localhost",
-        port=8082,  # Use another non-standard port
-        message_broker=message_broker
+    # Create a web server config with a test port
+    web_config = WebServerConfig(host="localhost", port=8082)
+    object_storage_config = ObjectStorageConfig(provider="local")
+    llm_config = LLMConfig(model_name="test-model")
+    audio_config = AudioConfig()
+    message_broker_config = MessageBrokerConfig()
+    
+    config = Config(
+        llm=llm_config,
+        audio=audio_config,
+        web_server=web_config,
+        object_storage=object_storage_config,
+        message_broker=message_broker_config
     )
     
-    # Start the server in a separate thread
-    server_thread = threading.Thread(target=server.start)
-    server_thread.daemon = True
-    server_thread.start()
-    
-    # Give the server time to start
-    time.sleep(0.1)
-    
-    # Check that the server is running
-    assert server.running is True
-    
-    # Stop the server
-    server.stop()
-    
-    # Give the server time to stop
-    time.sleep(0.1)
-    
-    # Check that the server is stopped
-    assert server.running is False
+    # Mock HTTP Server
+    with patch('podcleaner.services.web_server.HTTPServer') as mock_http_server:
+        mock_server = MagicMock()
+        mock_http_server.return_value = mock_server
+        
+        # Create a web server with the config
+        server = WebServer(
+            config=config,
+            message_broker=message_broker
+        )
+        
+        # Start the server
+        server.start()
+        
+        # Check that the server is running
+        assert server.running is True
+        
+        # Verify HTTP server was created
+        mock_http_server.assert_called_once()
+        
+        # Stop the server
+        server.stop()
+        
+        # Check that server was shut down
+        mock_server.shutdown.assert_called_once()
+        mock_server.server_close.assert_called_once()
 
 def test_handle_download_complete(web_server):
     """Test handling download completion messages."""

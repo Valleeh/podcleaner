@@ -8,3 +8,6 @@ test_env
 *.pyc
 __pycache__/
 .env
+output.txt
+podcleaner.egg-info/
+MagicMock

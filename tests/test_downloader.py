@@ -8,7 +8,7 @@ import tempfile
 import shutil
 from podcleaner.services.downloader import PodcastDownloader, DownloadError
 from podcleaner.services.message_broker import Message, Topics
-from podcleaner.config import AudioConfig
+from podcleaner.config import AudioConfig, Config, ObjectStorageConfig, LLMConfig
 import requests
 
 @pytest.fixture
@@ -21,7 +21,17 @@ def temp_dir():
 @pytest.fixture
 def downloader(temp_dir):
     """Create a downloader instance for testing."""
-    config = AudioConfig(download_dir=temp_dir)
+    # Create a full Config object
+    audio_config = AudioConfig(download_dir=temp_dir)
+    object_storage_config = ObjectStorageConfig(provider="local", local_storage_path=temp_dir)
+    llm_config = LLMConfig(model_name="test-model")
+    
+    config = Config(
+        llm=llm_config,
+        audio=audio_config,
+        object_storage=object_storage_config
+    )
+    
     message_broker = MagicMock()
     
     downloader = PodcastDownloader(config=config, message_broker=message_broker)
@@ -39,8 +49,9 @@ def test_generate_file_path(downloader):
     url = "https://example.com/podcast.mp3"
     file_path = downloader._generate_file_path(url)
     
-    # Check that the path is correct
-    assert file_path.startswith(downloader.download_dir)
+    # Check that the path is correct - now it will be relative to storage root
+    assert "podcasts/" in file_path
+    
     # Should be a hash, not ending with .mp3
     assert not file_path.endswith(".mp3")
     
@@ -62,6 +73,10 @@ def test_download_success(mock_get, downloader, temp_dir):
     mock_response.iter_content.return_value = [b"test audio content"]
     mock_get.return_value = mock_response
     
+    # Mock the object storage
+    downloader.object_storage.exists = MagicMock(return_value=False)
+    downloader.object_storage.upload = MagicMock(return_value=True)
+    
     # Download a test URL
     url = "https://example.com/podcast.mp3"
     file_path = downloader.download(url)
@@ -69,13 +84,8 @@ def test_download_success(mock_get, downloader, temp_dir):
     # Verify the request was made
     mock_get.assert_called_once_with(url, stream=True)
     
-    # Check that the file was created
-    assert os.path.exists(file_path)
-    
-    # Verify the file contains the expected content
-    with open(file_path, "rb") as f:
-        content = f.read()
-        assert content == b"test audio content"
+    # Verify that upload was called
+    downloader.object_storage.upload.assert_called()
     
     # URL should be added to processed files
     assert url in downloader.processed_files
@@ -191,9 +201,9 @@ def test_handle_already_processed_file(downloader):
     
     # Create file path to ensure it exists for the test
     file_path = downloader._generate_file_path(url)
-    os.makedirs(os.path.dirname(file_path), exist_ok=True)
-    with open(file_path, 'wb') as f:
-        f.write(b"test content")
+    
+    # Mock object storage existence check
+    downloader.object_storage.exists = MagicMock(return_value=True)
     
     # Create a test message
     message = Message(
