@@ -4,7 +4,14 @@ import os
 import json
 import threading
 from typing import List, Optional, Set
-import whisper
+
+# Import whisper with proper error handling
+try:
+    import whisper  # May need to be installed as 'openai-whisper'
+except ImportError as e:
+    whisper = None
+    whisper_import_error = str(e)
+
 from ..logging import get_logger
 from ..models import Segment, Transcript
 from .message_broker import Message, MessageBroker, Topics
@@ -74,7 +81,25 @@ class Transcriber:
         """Lazy load the whisper model."""
         if self._model is None:
             logger.info("loading_model", model=self.model_name)
-            self._model = whisper.load_model(self.model_name)
+            
+            # Check if whisper module is properly imported
+            if whisper is None:
+                error_msg = f"Failed to import whisper module: {whisper_import_error}"
+                logger.error("whisper_import_error", error=error_msg)
+                raise ImportError(error_msg)
+            
+            # Check if whisper has the load_model attribute
+            if not hasattr(whisper, 'load_model'):
+                error_msg = "module 'whisper' has no attribute 'load_model'"
+                logger.error("whisper_attribute_error", error=error_msg)
+                raise AttributeError(error_msg)
+            
+            try:
+                self._model = whisper.load_model(self.model_name)
+            except Exception as e:
+                logger.error("model_loading_failed", model=self.model_name, error=str(e))
+                raise
+                
         return self._model
     
     def _convert_whisper_segments(self, result: dict) -> List[Segment]:

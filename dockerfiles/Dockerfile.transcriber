@@ -26,6 +26,9 @@ ENV SERVICE_TYPE=transcriber
 # Install PyTorch with CUDA support for better transcription performance
 RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
+# Explicitly install openai-whisper
+RUN pip install --no-cache-dir openai-whisper
+
 # Create entrypoint script for transcriber service
 RUN echo '#!/bin/bash\n\
 # Load environment variables from secrets.json\n\

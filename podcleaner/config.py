@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Optional, Dict, Any, Literal
 import yaml
 from dotenv import load_dotenv
+import re
 
 def load_api_key(secrets_file="secrets.json"):
     """Load API key from secrets file."""
@@ -161,8 +162,18 @@ def load_config(path=None):
         path = "config.yaml"
     with open(path, 'r') as f:
         content = f.read()
-    # Substitute environment variables in the content
+    # Substitute environment variables in the content, supporting ${VAR:-default} syntax
+    def substitute_env_vars(s: str) -> str:
+        pattern = r"\$\{([^:}]+):-([^}]+)\}"
+        def replacer(match):
+            var = match.group(1)
+            default = match.group(2)
+            return os.environ.get(var, default)
+        return re.sub(pattern, replacer, s)
+
+    content = substitute_env_vars(content)
     content = os.path.expandvars(content)
+    
     config_data = yaml.safe_load(content)
     # Load environment variables
     load_dotenv()

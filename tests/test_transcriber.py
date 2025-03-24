@@ -134,4 +134,35 @@ def test_start_stop():
     assert transcriber.running is True
     
     transcriber.stop()
-    assert transcriber.running is False 
+    assert transcriber.running is False
+
+def test_model_loading_error():
+    """Test that an error is raised when whisper.load_model is not available."""
+    with patch('podcleaner.services.transcriber.whisper') as mock_whisper:
+        # Set up the mock to raise the actual error
+        mock_whisper.load_model.side_effect = AttributeError("module 'whisper' has no attribute 'load_model'")
+        
+        transcriber = Transcriber(model_name="base")
+        
+        # Try to access the model property which should trigger the load_model call
+        with pytest.raises(AttributeError) as exc_info:
+            _ = transcriber.model
+        
+        # Verify the error message
+        assert "module 'whisper' has no attribute 'load_model'" in str(exc_info.value)
+
+def test_transcribe_with_model_loading_error():
+    """Test that the transcribe method handles whisper model loading errors properly."""
+    with patch('podcleaner.services.transcriber.whisper') as mock_whisper:
+        # Set up the mock to raise the error
+        mock_whisper.load_model.side_effect = AttributeError("module 'whisper' has no attribute 'load_model'")
+        
+        transcriber = Transcriber(model_name="base")
+        
+        # Try to transcribe an audio file which should trigger the model loading
+        with pytest.raises(TranscriptionError) as exc_info:
+            transcriber.transcribe("test_audio.mp3")
+        
+        # Verify that the error is wrapped in a TranscriptionError
+        assert "Failed to transcribe audio" in str(exc_info.value)
+        assert "module 'whisper' has no attribute 'load_model'" in str(exc_info.value) 
