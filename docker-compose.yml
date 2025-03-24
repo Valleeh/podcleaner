@@ -5,8 +5,8 @@ services:
   mqtt:
     image: eclipse-mosquitto:2
     ports:
-      - "1883:1883"
-      - "9001:9001"
+      - "1884:1883"
+      - "9002:9001"
     volumes:
       - ./dockerfiles/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
     networks:
@@ -51,7 +51,7 @@ services:
   web:
     build: 
       context: .
-      dockerfile: dockerfiles/Dockerfile
+      dockerfile: dockerfiles/Dockerfile.web
     ports:
       - "8080:8080"
     depends_on:
@@ -60,14 +60,12 @@ services:
     environment:
       - MQTT_HOST=mqtt
       - MQTT_PORT=1883
-      - WEB_HOST=0.0.0.0
-      - WEB_PORT=8080
       - OBJECT_STORAGE_PROVIDER=minio
       - OBJECT_STORAGE_BUCKET_NAME=podcleaner
       - OBJECT_STORAGE_ENDPOINT_URL=http://minio:9000
       - OBJECT_STORAGE_ACCESS_KEY=minioadmin
       - OBJECT_STORAGE_SECRET_KEY=minioadmin
-    command: ["python", "-m", "podcleaner", "service", "--service", "web"]
+    entrypoint: ["/bin/sh", "-c", "cat > /app/config.yaml << EOF\nlog_level: \"INFO\"\n\nmessage_broker:\n  type: \"mqtt\"\n  mqtt:\n    host: \"mqtt\"\n    port: 1883\n\nweb_server:\n  host: \"0.0.0.0\"\n  port: 8080\n\nobject_storage:\n  provider: \"minio\"\n  bucket_name: \"podcleaner\"\n  endpoint_url: \"http://minio:9000\"\n  access_key: \"minioadmin\"\n  secret_key: \"minioadmin\"\nEOF\n\npython -m podcleaner server web -c /app/config.yaml"]
     networks:
       - podcleaner-network
 
@@ -75,7 +73,7 @@ services:
   transcriber:
     build: 
       context: .
-      dockerfile: dockerfiles/Dockerfile
+      dockerfile: dockerfiles/Dockerfile.transcriber
     depends_on:
       - mqtt
       - minio
@@ -87,7 +85,7 @@ services:
       - OBJECT_STORAGE_ENDPOINT_URL=http://minio:9000
       - OBJECT_STORAGE_ACCESS_KEY=minioadmin
       - OBJECT_STORAGE_SECRET_KEY=minioadmin
-    command: ["python", "-m", "podcleaner", "service", "--service", "transcriber"]
+    entrypoint: ["/bin/sh", "-c", "cat > /app/config.yaml << EOF\nlog_level: \"INFO\"\n\nmessage_broker:\n  type: \"mqtt\"\n  mqtt:\n    host: \"mqtt\"\n    port: 1883\n\nweb_server:\n  host: \"0.0.0.0\"\n  port: 8080\n\nobject_storage:\n  provider: \"minio\"\n  bucket_name: \"podcleaner\"\n  endpoint_url: \"http://minio:9000\"\n  access_key: \"minioadmin\"\n  secret_key: \"minioadmin\"\nEOF\n\npython -m podcleaner server transcriber -c /app/config.yaml"]
     networks:
       - podcleaner-network
 
@@ -95,7 +93,7 @@ services:
   ad-detector:
     build: 
       context: .
-      dockerfile: dockerfiles/Dockerfile
+      dockerfile: dockerfiles/Dockerfile.ad-detector
     depends_on:
       - mqtt
       - minio
@@ -107,7 +105,7 @@ services:
       - OBJECT_STORAGE_ENDPOINT_URL=http://minio:9000
       - OBJECT_STORAGE_ACCESS_KEY=minioadmin
       - OBJECT_STORAGE_SECRET_KEY=minioadmin
-    command: ["python", "-m", "podcleaner", "service", "--service", "ad-detector"]
+    entrypoint: ["/bin/sh", "-c", "cat > /app/config.yaml << EOF\nlog_level: \"INFO\"\n\nmessage_broker:\n  type: \"mqtt\"\n  mqtt:\n    host: \"mqtt\"\n    port: 1883\n\nweb_server:\n  host: \"0.0.0.0\"\n  port: 8080\n\nobject_storage:\n  provider: \"minio\"\n  bucket_name: \"podcleaner\"\n  endpoint_url: \"http://minio:9000\"\n  access_key: \"minioadmin\"\n  secret_key: \"minioadmin\"\nEOF\n\npython -m podcleaner server ad-detector -c /app/config.yaml"]
     networks:
       - podcleaner-network
 
@@ -115,7 +113,7 @@ services:
   audio-processor:
     build: 
       context: .
-      dockerfile: dockerfiles/Dockerfile
+      dockerfile: dockerfiles/Dockerfile.web
     depends_on:
       - mqtt
       - minio
@@ -127,7 +125,7 @@ services:
       - OBJECT_STORAGE_ENDPOINT_URL=http://minio:9000
       - OBJECT_STORAGE_ACCESS_KEY=minioadmin
       - OBJECT_STORAGE_SECRET_KEY=minioadmin
-    command: ["python", "-m", "podcleaner", "service", "--service", "audio-processor"]
+    entrypoint: ["/bin/sh", "-c", "cat > /app/config.yaml << EOF\nlog_level: \"INFO\"\n\nmessage_broker:\n  type: \"mqtt\"\n  mqtt:\n    host: \"mqtt\"\n    port: 1883\n\nweb_server:\n  host: \"0.0.0.0\"\n  port: 8080\n\nobject_storage:\n  provider: \"minio\"\n  bucket_name: \"podcleaner\"\n  endpoint_url: \"http://minio:9000\"\n  access_key: \"minioadmin\"\n  secret_key: \"minioadmin\"\nEOF\n\npython -m podcleaner server audio-processor -c /app/config.yaml"]
     networks:
       - podcleaner-network
 
@@ -135,7 +133,7 @@ services:
   downloader:
     build: 
       context: .
-      dockerfile: dockerfiles/Dockerfile
+      dockerfile: dockerfiles/Dockerfile.web
     depends_on:
       - mqtt
       - minio
@@ -147,7 +145,7 @@ services:
       - OBJECT_STORAGE_ENDPOINT_URL=http://minio:9000
       - OBJECT_STORAGE_ACCESS_KEY=minioadmin
       - OBJECT_STORAGE_SECRET_KEY=minioadmin
-    command: ["python", "-m", "podcleaner", "service", "--service", "downloader"]
+    entrypoint: ["/bin/sh", "-c", "cat > /app/config.yaml << EOF\nlog_level: \"INFO\"\n\nmessage_broker:\n  type: \"mqtt\"\n  mqtt:\n    host: \"mqtt\"\n    port: 1883\n\nweb_server:\n  host: \"0.0.0.0\"\n  port: 8080\n\nobject_storage:\n  provider: \"minio\"\n  bucket_name: \"podcleaner\"\n  endpoint_url: \"http://minio:9000\"\n  access_key: \"minioadmin\"\n  secret_key: \"minioadmin\"\nEOF\n\npython -m podcleaner server downloader -c /app/config.yaml"]
     networks:
       - podcleaner-network
 

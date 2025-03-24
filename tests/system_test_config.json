@@ -1,0 +1,12 @@
+{
+    "base_url": "http://localhost:8080",
+    "test_podcast_url": "https://traffic.libsyn.com/secure/tripod/TriPod_Episode_1.mp3",
+    "rss_feed_url": "https://feeds.simplecast.com/54nAGcIl",
+    "timeout": 300,
+    "poll_interval": 10,
+    "concurrent_requests": 2,
+    "additional_test_urls": [
+        "https://traffic.libsyn.com/secure/tripod/TriPod_Episode_2.mp3",
+        "https://traffic.libsyn.com/secure/tripod/TriPod_Episode_3.mp3"
+    ]
+} 

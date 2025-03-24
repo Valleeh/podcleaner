@@ -155,21 +155,20 @@ class Config:
         """Validate the configuration."""
         self.llm.validate()
 
-def load_config(config_path: str = "config.yaml") -> Config:
-    """Load configuration from file."""
+def load_config(path=None):
+    """Load the configuration file and substitute environment variables."""
+    if path is None:
+        path = "config.yaml"
+    with open(path, 'r') as f:
+        content = f.read()
+    # Substitute environment variables in the content
+    content = os.path.expandvars(content)
+    config_data = yaml.safe_load(content)
     # Load environment variables
     load_dotenv()
     
-    config_dict = {}
-    if config_path and os.path.exists(config_path):
-        try:
-            with open(config_path, 'r') as f:
-                config_dict = yaml.safe_load(f)
-        except Exception as e:
-            raise ValueError(f"Failed to load config from {config_path}: {str(e)}")
-    
     # Load LLM config
-    llm_config_data = config_dict.get("llm", {})
+    llm_config_data = config_data.get("llm", {})
     llm_config = LLMConfig(
         model_name=llm_config_data.get("model_name", "gpt-3.5-turbo"),
         api_key=llm_config_data.get("api_key") or os.environ.get("OPENAI_API_KEY"),
@@ -180,7 +179,7 @@ def load_config(config_path: str = "config.yaml") -> Config:
     )
     
     # Load audio config
-    audio_config_data = config_dict.get("audio", {})
+    audio_config_data = config_data.get("audio", {})
     audio_config = AudioConfig(
         min_duration=audio_config_data.get("min_duration", 5.0),
         max_gap=audio_config_data.get("max_gap", 20.0),
@@ -189,24 +188,24 @@ def load_config(config_path: str = "config.yaml") -> Config:
     
     # Load message broker config
     message_broker_config = MessageBrokerConfig.from_dict(
-        config_dict.get("message_broker", {})
+        config_data.get("message_broker", {})
     )
     
     # Load web server config
     web_server_config = WebServerConfig.from_dict(
-        config_dict.get("web_server", {})
+        config_data.get("web_server", {})
     )
     
     # Load object storage config
     object_storage_config = ObjectStorageConfig.from_dict(
-        config_dict.get("object_storage", {})
+        config_data.get("object_storage", {})
     )
     
     # Create the config
     config = Config(
         llm=llm_config,
         audio=audio_config,
-        log_level=config_dict.get("log_level", "INFO"),
+        log_level=config_data.get("log_level", "INFO"),
         message_broker=message_broker_config,
         web_server=web_server_config,
         object_storage=object_storage_config

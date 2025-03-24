@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+If you fixed an error, take a moment step back, breath, and analyse the logical error that lead to it. Then check if this error could be also in other areas of the code and fix them instead of fixing and try each subsequently.

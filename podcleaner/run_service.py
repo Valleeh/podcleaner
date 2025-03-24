@@ -86,9 +86,9 @@ def main():
     
     # Override web server settings if provided
     if args.web_host:
-        config.web.host = args.web_host
+        config.web_server.host = args.web_host
     if args.web_port:
-        config.web.port = args.web_port
+        config.web_server.port = args.web_port
     
     # Log the service being started
     service_name = args.service
@@ -124,7 +124,7 @@ def main():
         )
         web_server.start()
         services.append(web_server)
-        logger.info("web_server_started", host=config.web.host, port=config.web.port)
+        logger.info("web_server_started", host=config.web_server.host, port=config.web_server.port)
     
     if service_name == "transcriber" or service_name == "all":
         model_name = args.model_name or "base"

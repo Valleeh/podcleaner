@@ -16,7 +16,7 @@ message_broker:
   type: "mqtt"  # Options: "mqtt", "in_memory"
   mqtt:
     host: ${MQTT_HOST:-localhost}
-    port: ${MQTT_PORT:-1883}
+    port: 1883
     username: ${MQTT_USERNAME:-}
     password: ${MQTT_PASSWORD:-}
 
