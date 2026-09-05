@@ -28,3 +28,4 @@ MagicMock
 *.pywz
 *.pyzw
 .coverage
+corpus/synthetic/
