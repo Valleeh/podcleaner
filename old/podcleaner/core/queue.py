@@ -166,7 +166,7 @@ class WorkQueue:
                           -- LEASE PREDICATE. Removing it lets two workers hold
                           -- one row at once (contract mutation 2a).
                           AND (claimed_at IS NULL
-                               OR claimed_at + COALESCE(lease_seconds, 0) * 1e12 <= ?)
+                               OR claimed_at + COALESCE(lease_seconds, 0) <= ?)
                         ORDER BY updated_at ASC, id ASC
                         LIMIT 1
                  )
@@ -219,7 +219,7 @@ class WorkQueue:
               FROM episodes
              WHERE state IN ({placeholders})
                AND claimed_at IS NOT NULL
-               AND claimed_at + COALESCE(lease_seconds, 0) * 1e12 <= ?
+               AND claimed_at + COALESCE(lease_seconds, 0) <= ?
                AND attempts + 1 >= CASE WHEN ? IS NULL THEN max_attempts ELSE ? END
             """,
             (*wanted, now, self.max_attempts, self.max_attempts),
