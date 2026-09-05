@@ -1,17 +1,27 @@
-venv
-_pycache_
-.pytest_cache
-secrets.json
-podcasts
-debug_output
-test_env
-*.pyc
+# Python
 __pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Test / tooling artifacts
+.pytest_cache/
+.hypothesis/
+.coverage
+htmlcov/
+
+# Secrets and local config
 .env
-output.txt
-podcleaner.egg-info/
-MagicMock
+secrets.json
+config.local.yaml
+
+# Generated data
+var/
+corpus/synthetic/
 *.log
+
+# Media (never commit audio)
 *.mp3
 *.wav
 *.m4a
@@ -19,13 +29,3 @@ MagicMock
 *.ogg
 *.opus
 *.aac
-.cursor/
-*.pyc
-*.pyo
-*.pyd
-*.pyw
-*.pyz
-*.pywz
-*.pyzw
-.coverage
-corpus/synthetic/
