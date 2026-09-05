@@ -543,6 +543,34 @@ def _shape_struct(
     return shape, struct, ref_std
 
 
+def _bins_as_arrays(bins: dict) -> tuple[np.ndarray, np.ndarray]:
+    offs = np.fromiter(bins.keys(), dtype=np.int64, count=len(bins))
+    counts = np.fromiter(bins.values(), dtype=np.int64, count=len(bins))
+    return offs, counts
+
+
+def _significance(
+    offs: np.ndarray, counts: np.ndarray, off: int, ref_frames: int, q_frames: int
+) -> float:
+    """How far the winning offset bin stands above the chance background.
+
+    The background must be measured *away* from the candidate: a genuine occurrence of a
+    slowly-varying creative deposits votes not only in its own bin but in a triangular
+    skirt +/- ``ref_frames`` wide around it (partial self-overlap).  Averaging over every
+    non-empty bin therefore averages over the signal itself and, for a near-stationary
+    creative, caps the achievable ratio at about 2 -- which rejects perfect matches.
+    Excluding the skirt makes the statistic mean what its name says.
+    """
+    if counts.size == 0:
+        return 0.0
+    near = np.abs(offs - off) <= ref_frames
+    outside_votes = float(counts[~near].sum())
+    n_offsets = max(q_frames + ref_frames, 1)
+    n_outside = max(n_offsets - (2 * ref_frames + 1), 1)
+    background = outside_votes / n_outside
+    return float(counts[offs == off].max()) / (background + 1.0)
+
+
 # --------------------------------------------------------------------------------------
 # matches
 # --------------------------------------------------------------------------------------
@@ -855,19 +883,19 @@ class FingerprintLibrary:
         }
 
         candidates: list[Match] = []
+        q_frames = qfp.mel.shape[0]
         for cid, bins in hist.items():
             ref_mel = self._ref_mel(cid)
             n_ref_hashes = max(totals.get(cid, 1), 1)
-            counts = np.fromiter(bins.values(), dtype=np.int64, count=len(bins))
-            background = float(counts.mean()) if counts.size else 0.0
+            offs, counts = _bins_as_arrays(bins)
 
             # Only offsets that both clear the absolute floor and stand out from the
-            # smear are worth verifying.
+            # background are worth verifying.
             ranked = sorted(bins.items(), key=lambda kv: (-kv[1], kv[0]))
             for off, votes in ranked[:16]:
                 if votes < th.min_votes:
                     break
-                ratio = votes / background if background > 0 else float("inf")
+                ratio = _significance(offs, counts, int(off), ref_mel.shape[0], q_frames)
                 coverage = votes / n_ref_hashes
                 if ratio < th.min_vote_ratio or coverage < th.min_vote_coverage:
                     continue
@@ -984,10 +1012,12 @@ class FingerprintLibrary:
                     }
                 )
                 continue
-            counts = np.fromiter(bins.values(), dtype=np.int64, count=len(bins))
-            background = float(counts.mean())
+            offs, counts = _bins_as_arrays(bins)
             off, votes = max(bins.items(), key=lambda kv: (kv[1], -kv[0]))
             ref_mel = self._ref_mel(cid)
+            significance = _significance(
+                offs, counts, int(off), ref_mel.shape[0], qfp.mel.shape[0]
+            )
             m = self._verify(
                 cid,
                 ref_mel,
@@ -1009,7 +1039,7 @@ class FingerprintLibrary:
                 {
                     "creative_id": cid,
                     "votes": int(votes),
-                    "vote_ratio": votes / background if background else float("inf"),
+                    "vote_ratio": significance,
                     "coverage": votes / max(totals.get(cid, 1), 1),
                     "shape": m.shape if m else 0.0,
                     "struct": m.struct if m else None,
