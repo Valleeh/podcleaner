@@ -483,12 +483,19 @@ class Database:
             )
         )
 
-    def overlapping_leases(self) -> list[tuple[sqlite3.Row, sqlite3.Row]]:
+    def overlapping_leases(
+        self, limit: int = 50
+    ) -> list[tuple[sqlite3.Row, sqlite3.Row]]:
         """Pairs of leases on the same episode whose validity windows overlap.
 
         A lease is valid from ``claimed_at`` until it is released, or until it
         expires, whichever comes first. Under a correct claim protocol this list
         is always empty -- that is the S2.7 negative control.
+
+        ``limit`` caps how many offending pairs are collected. The answer to
+        "is the claim protocol broken?" is already given by the first pair, and
+        a badly broken protocol can produce quadratically many of them, which
+        should not be allowed to exhaust memory while a test is failing.
         """
         by_episode: dict[int, list[sqlite3.Row]] = {}
         for row in self.leases():
@@ -509,6 +516,8 @@ class Database:
                     if start_j >= end_i:
                         break
                     bad.append((row_i, row_j))
+                    if len(bad) >= limit:
+                        return bad
         return bad
 
 

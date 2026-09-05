@@ -30,14 +30,23 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Sequence
 
+from podcleaner.eval.corpus import (
+    CONVENTION_BREAK_INCLUDING_PAUSE,
+    CONVENTION_CREATIVE_ONLY,
+    DEFAULT_LABEL_CONVENTION,
+    LABEL_CONVENTIONS,
+)
 from podcleaner.eval.scoring import IntervalError, normalize_intervals
 
 __all__ = [
+    "CONVENTION_DESCRIPTIONS",
+    "LABEL_CONVENTIONS",
     "LABEL_SCHEMA",
     "LABEL_SUFFIX",
     "LabelError",
     "REAL_CORPUS_DIR",
     "build_stub",
+    "gold_from_label",
     "load_label",
     "main",
     "validate_label",
@@ -49,7 +58,22 @@ LABEL_SUFFIX = ".label.json"
 #: committed.
 REAL_CORPUS_DIR = Path("corpus/real")
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+#: What each convention means, in the words a labeller is given. Printed by the CLI so a
+#: human never has to guess, and quoted into corpus/real/README.md.
+CONVENTION_DESCRIPTIONS = {
+    CONVENTION_BREAK_INCLUDING_PAUSE: (
+        "The break runs from where the show's audio STOPS to where it RESUMES. "
+        "The silence on either side of the ad belongs to the break. "
+        "Mark the start at the last moment of real content, not at the first note of "
+        "the jingle. THIS IS THE PROJECT DEFAULT -- use it unless told otherwise."
+    ),
+    CONVENTION_CREATIVE_ONLY: (
+        "The break is the advertisement audio ONLY. The silence on either side stays "
+        "with the content. Mark the start at the first note of the ad itself."
+    ),
+}
 
 #: Valid values for ``ads[].kind``.  Descriptive only; the scorer ignores it.
 AD_KINDS = ("host_read", "programmatic", "promo", "sponsor_bumper", "other")
@@ -70,6 +94,7 @@ LABEL_SCHEMA = {
         "labeler",
         "labeled_at",
         "status",
+        "label_convention",
         "ads",
     ],
     "additionalProperties": False,
@@ -107,6 +132,19 @@ LABEL_SCHEMA = {
                 "'complete' asserts the human listened to the WHOLE episode, so an "
                 "absence of intervals means 'no ad here', not 'not checked yet'. Only a "
                 "'complete' file may be used as gold for scoring."
+            ),
+        },
+        "label_convention": {
+            "enum": list(LABEL_CONVENTIONS),
+            "description": (
+                "REQUIRED. Which boundary convention the human followed. Ad breaks are "
+                "bracketed by silence, and whether that silence counts as part of the "
+                "break materially changes the score -- on the synthetic corpus the same "
+                "algorithm scored 0.882 vs a 7.778 baseline under one reading and 7.782 "
+                "under the other. A corpus that mixes conventions measures labelling "
+                "noise, not detector quality, so this field has no default and must be "
+                "stated explicitly. "
+                + " | ".join(f"{k}: {v}" for k, v in CONVENTION_DESCRIPTIONS.items())
             ),
         },
         "notes": {"type": ["string", "null"]},
@@ -182,6 +220,14 @@ def validate_label(data: object, *, source: str = "<label>") -> dict:
             f"{source}: 'labeler' must name the human who listened; it is empty"
         )
 
+    convention = data["label_convention"]
+    if convention not in LABEL_CONVENTIONS:
+        raise LabelError(
+            f"{source}: label_convention must be one of {LABEL_CONVENTIONS}, "
+            f"got {convention!r}. It has no default on purpose: see "
+            f"corpus/real/README.md."
+        )
+
     if data["status"] not in ("in_progress", "complete"):
         raise LabelError(
             f"{source}: status must be 'in_progress' or 'complete', "
@@ -223,6 +269,40 @@ def validate_label(data: object, *, source: str = "<label>") -> dict:
     return data
 
 
+def gold_from_label(
+    label: dict, expected_convention: str = DEFAULT_LABEL_CONVENTION
+) -> List[List[float]]:
+    """Gold intervals from a validated label, refusing a convention mismatch.
+
+    This is the enforcement point the schema field exists for. Scoring a
+    ``creative_only`` label against a ``break_including_pause`` corpus (or the reverse)
+    silently measures the difference between two labelling policies and calls it detector
+    error, so it is refused rather than converted -- the conversion is not possible
+    anyway without the pause boundaries, which a human label does not record.
+
+    Also refuses an ``in_progress`` label: ``ads: []`` there means "not checked yet",
+    not "no ads".
+    """
+    validate_label(label)
+    if expected_convention not in LABEL_CONVENTIONS:
+        raise LabelError(
+            f"expected_convention must be one of {LABEL_CONVENTIONS}, "
+            f"got {expected_convention!r}"
+        )
+    if label["label_convention"] != expected_convention:
+        raise LabelError(
+            f"label was made under convention {label['label_convention']!r} but is "
+            f"being scored as {expected_convention!r}. These are not interchangeable "
+            f"and cannot be converted after the fact; relabel or score consistently."
+        )
+    if label["status"] != "complete":
+        raise LabelError(
+            f"label status is {label['status']!r}; only 'complete' labels may be used "
+            f"as gold (an unfinished file's empty 'ads' means 'not checked', not 'no ads')"
+        )
+    return [[ad["start"], ad["end"]] for ad in label["ads"]]
+
+
 def load_label(path: Path | str) -> dict:
     """Read and validate a label file."""
     p = Path(path)
@@ -254,6 +334,7 @@ def build_stub(
     feed_url: Optional[str] = None,
     guid: Optional[str] = None,
     title: Optional[str] = None,
+    label_convention: str = DEFAULT_LABEL_CONVENTION,
     now: Optional[datetime] = None,
 ) -> dict:
     """Build an EMPTY, ``in_progress`` label document for ``audio_path``.
@@ -263,6 +344,11 @@ def build_stub(
     """
     if not labeler or not labeler.strip():
         raise LabelError("--labeler is required: a human must own the labels")
+    if label_convention not in LABEL_CONVENTIONS:
+        raise LabelError(
+            f"label_convention must be one of {LABEL_CONVENTIONS}, "
+            f"got {label_convention!r}"
+        )
     audio = Path(audio_path)
     sha = None
     if audio.exists():
@@ -289,6 +375,7 @@ def build_stub(
         "labeler": labeler.strip(),
         "labeled_at": stamp,
         "status": "in_progress",
+        "label_convention": label_convention,
         "notes": None,
         "ads": [],
     }

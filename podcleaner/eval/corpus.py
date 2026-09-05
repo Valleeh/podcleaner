@@ -17,15 +17,23 @@ Design notes
   ``anoisesrc``; no wall-clock or ``os.urandom`` input anywhere.
 * **Negative controls included.** Some episodes contain *no* ads at all
   (``ads: []``), so a detector that says "yes" to everything can be caught.
+* **Pause bracketing.** Each ad creative is spliced in with ``pause_seconds`` of silence
+  on *both* sides, because that is what a real ad break looks like and it is the reason
+  boundary snapping works at all.  A corpus of wall-to-wall tone has no edges to snap to
+  and silently makes snapping look useless.  ``pause_seconds=0.0`` reproduces the
+  original pause-free corpus byte-for-byte (pause insertion draws no random numbers).
 * **Offline.** Nothing is downloaded.  ffmpeg's ``lavfi`` synthesises every sample.
 
 Manifest layout (``manifest.json``)::
 
     {
-      "schema_version": 1,
+      "schema_version": 2,
       "generator": "podcleaner.eval.corpus",
       "seed": 1234,
       "sample_rate": 16000,
+      "pause_seconds": 0.4,
+      "pause_samples": 6400,
+      "label_convention": "break_including_pause",
       "creatives": [ {"id", "path", "duration_seconds", "duration_samples", "spec"} ],
       "episodes": [
         {
@@ -33,20 +41,43 @@ Manifest layout (``manifest.json``)::
           "path": "episodes/ep000.wav",
           "duration_seconds": 42.5,
           "duration_samples": 680000,
-          "ads": [ {"start", "end", "creative_id", "creative_path"} ],
-          "parts": [ {"kind", "source_id", "start", "end",
+          "ads": [ {"start", "end",                    # gold, per label_convention
+                    "creative_start", "creative_end",  # the ad audio alone
+                    "break_start", "break_end",        # including both pauses
+                    "lead_pause", "trail_pause",       # {"start","end"} or null
+                    "creative_id", "creative_path"} ],
+          "parts": [ {"kind", "source_id", "role", "ad_index", "start", "end",
                       "duration_seconds", "duration_samples"} ]
         }
       ]
     }
 
+``parts[].kind`` is ``"content"``, ``"ad"`` or ``"pause"``.  For ``"pause"``, ``role`` is
+``"lead"`` or ``"trail"`` and ``ad_index`` says which break it belongs to.
+
+The labelling convention
+------------------------
+
+``ads[].start``/``end`` -- the gold intervals -- depend on an assumption that has to be
+stated, because it changes the answer.  Does the pause bracketing an ad break belong to
+the break, or to the content?  On step 5's measurements, the same snapping algorithm on
+the same audio scored **0.882 vs a 7.778 baseline** under one reading and **7.782 vs the
+same 7.778** under the other: a clear win, or a marginal loss.
+
+This corpus therefore records *both* readings for every ad
+(``creative_*`` and ``break_*``), names the one it treats as gold in
+``label_convention``, and defaults to ``"break_including_pause"``.  See
+``corpus/real/README.md`` for the reasoning and for what human labellers are told to do.
+
 ``ads`` is exactly the gold interval list expected by
-:func:`podcleaner.eval.scoring.score`.
+:func:`podcleaner.eval.scoring.score`; use :func:`gold_intervals` to select a reading
+explicitly.
 """
 
 from __future__ import annotations
 
 import json
+import math
 import random
 import shutil
 import subprocess
@@ -57,7 +88,12 @@ from typing import Dict, List, Optional, Sequence
 __all__ = [
     "AD_CREATIVES",
     "CONTENT_VOICES",
+    "CONVENTION_BREAK_INCLUDING_PAUSE",
+    "CONVENTION_CREATIVE_ONLY",
+    "DEFAULT_LABEL_CONVENTION",
+    "DEFAULT_PAUSE_SECONDS",
     "DEFAULT_SEED",
+    "LABEL_CONVENTIONS",
     "SAMPLE_RATE",
     "CorpusError",
     "Part",
@@ -76,7 +112,24 @@ FRAME_SECONDS = 1.0 / SAMPLE_RATE
 DEFAULT_SEED = 1234
 
 MANIFEST_NAME = "manifest.json"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+#: Seconds of silence spliced on each side of every ad creative, by default.
+#: Real ad breaks are bracketed by pauses -- that is *why* boundary snapping works --
+#: so a corpus of wall-to-wall tone cannot exercise snapping at all.  Set to 0.0 to
+#: reproduce the original pause-free corpus exactly.
+DEFAULT_PAUSE_SECONDS = 0.4
+
+PAUSE_SOURCE_ID = "silence"
+SILENCE_LAVFI = "anullsrc=r={sr}:cl=mono:d={dur}"
+
+#: How a labeller decides where an ad break starts and ends.  See the module docstring
+#: and ``corpus/real/README.md``; this is recorded in the manifest and required in every
+#: real-episode label so the two can never be silently mixed.
+CONVENTION_BREAK_INCLUDING_PAUSE = "break_including_pause"
+CONVENTION_CREATIVE_ONLY = "creative_only"
+LABEL_CONVENTIONS = (CONVENTION_BREAK_INCLUDING_PAUSE, CONVENTION_CREATIVE_ONLY)
+DEFAULT_LABEL_CONVENTION = CONVENTION_BREAK_INCLUDING_PAUSE
 
 
 class CorpusError(RuntimeError):
@@ -273,11 +326,15 @@ def _concat(parts: Sequence[Path], dest: Path, workdir: Path) -> None:
 class Part:
     """One contiguous chunk of an episode timeline."""
 
-    kind: str  # "content" or "ad"
+    kind: str  # "content", "ad" or "pause"
     source_id: str
     duration_samples: int
     start: float = 0.0
     end: float = 0.0
+    #: for pause parts: "lead" (before the ad) or "trail" (after it)
+    role: Optional[str] = None
+    #: for "ad" and "pause" parts: which ad break of this episode they belong to
+    ad_index: Optional[int] = None
 
     @property
     def duration_seconds(self) -> float:
@@ -307,8 +364,17 @@ def _lay_out(parts: Sequence[Part]) -> None:
         part.end = cursor_samples / SAMPLE_RATE
 
 
-def _plan_episode(rng: random.Random, n_ads: int) -> List[Part]:
-    """Interleave ``n_ads`` ad breaks between ``n_ads + 1`` content chunks."""
+def _plan_episode(rng: random.Random, n_ads: int, pause_samples: int) -> List[Part]:
+    """Interleave ``n_ads`` ad breaks between ``n_ads + 1`` content chunks.
+
+    When ``pause_samples > 0`` each ad is *bracketed* by a silent pause, as a real ad
+    break is::
+
+        content | pause | AD | pause | content | pause | AD | pause | content
+
+    The pause draws no random numbers, so ``pause_samples == 0`` reproduces the
+    pre-pause corpus byte-for-byte under the same seed.
+    """
     parts: List[Part] = []
     for slot in range(n_ads + 1):
         voice = CONTENT_VOICES[rng.randrange(len(CONTENT_VOICES))]
@@ -323,19 +389,106 @@ def _plan_episode(rng: random.Random, n_ads: int) -> List[Part]:
         )
         if slot < n_ads:
             creative = AD_CREATIVES[rng.randrange(len(AD_CREATIVES))]
+            if pause_samples > 0:
+                parts.append(
+                    Part(
+                        kind="pause",
+                        source_id=PAUSE_SOURCE_ID,
+                        duration_samples=pause_samples,
+                        role="lead",
+                        ad_index=slot,
+                    )
+                )
             parts.append(
                 Part(
                     kind="ad",
                     source_id=str(creative["id"]),
                     duration_samples=_samples(float(creative["duration_seconds"])),
+                    ad_index=slot,
                 )
             )
+            if pause_samples > 0:
+                parts.append(
+                    Part(
+                        kind="pause",
+                        source_id=PAUSE_SOURCE_ID,
+                        duration_samples=pause_samples,
+                        role="trail",
+                        ad_index=slot,
+                    )
+                )
     return parts
 
 
 # --------------------------------------------------------------------------------------
 # public API
 # --------------------------------------------------------------------------------------
+
+
+def _ad_records(
+    parts: Sequence[Part],
+    creative_paths: Dict[str, Path],
+    out_path: Path,
+    label_convention: str,
+) -> List[Dict[str, object]]:
+    """Build the manifest's ``ads`` list for one episode.
+
+    Every ad records BOTH readings of its boundary, always:
+
+    * ``creative_start``/``creative_end`` -- the ad audio only;
+    * ``break_start``/``break_end``       -- including the bracketing pauses.
+
+    ``start``/``end`` is whichever of the two ``label_convention`` selects, so that
+    ``gold_intervals()`` and any downstream scorer get an unambiguous gold, and the
+    manifest can never be read under a convention it was not built for.
+    """
+    records: List[Dict[str, object]] = []
+    for part in parts:
+        if part.kind != "ad":
+            continue
+        lead = next(
+            (
+                p
+                for p in parts
+                if p.kind == "pause" and p.role == "lead" and p.ad_index == part.ad_index
+            ),
+            None,
+        )
+        trail = next(
+            (
+                p
+                for p in parts
+                if p.kind == "pause" and p.role == "trail" and p.ad_index == part.ad_index
+            ),
+            None,
+        )
+        break_start = lead.start if lead is not None else part.start
+        break_end = trail.end if trail is not None else part.end
+        if label_convention == CONVENTION_BREAK_INCLUDING_PAUSE:
+            gold_start, gold_end = break_start, break_end
+        else:
+            gold_start, gold_end = part.start, part.end
+        records.append(
+            {
+                "start": gold_start,
+                "end": gold_end,
+                "creative_start": part.start,
+                "creative_end": part.end,
+                "break_start": break_start,
+                "break_end": break_end,
+                "lead_pause": (
+                    None if lead is None else {"start": lead.start, "end": lead.end}
+                ),
+                "trail_pause": (
+                    None if trail is None else {"start": trail.start, "end": trail.end}
+                ),
+                "creative_id": part.source_id,
+                "creative_path": creative_paths[part.source_id]
+                .relative_to(out_path)
+                .as_posix(),
+            }
+        )
+    return records
 
 
 @dataclass
@@ -355,12 +508,22 @@ def generate_corpus(
     n_episodes: int = 6,
     n_ad_free_episodes: int = 2,
     max_ads_per_episode: int = 3,
+    pause_seconds: float = DEFAULT_PAUSE_SECONDS,
+    label_convention: str = DEFAULT_LABEL_CONVENTION,
 ) -> dict:
     """Generate a synthetic corpus under ``out_dir`` and return its manifest.
 
     ``n_ad_free_episodes`` of the ``n_episodes`` contain no ads at all -- these are the
     negative controls (a detector that fires on them is producing false cuts on material
     where the correct answer is "nothing").
+
+    ``pause_seconds`` of silence brackets each ad creative on both sides.  Pass ``0.0``
+    for the original wall-to-wall corpus, which is reproducible byte-for-byte because
+    pause insertion consumes no random numbers.
+
+    ``label_convention`` decides what the manifest's ``ads[].start``/``end`` -- the gold
+    intervals -- actually mean.  Both readings are always recorded (``creative_*`` and
+    ``break_*``); this only selects which one is the default gold.
 
     The manifest is also written to ``out_dir/manifest.json``.
     """
@@ -370,6 +533,20 @@ def generate_corpus(
         raise CorpusError("n_ad_free_episodes must be between 0 and n_episodes")
     if max_ads_per_episode < 1:
         raise CorpusError("max_ads_per_episode must be >= 1")
+    if label_convention not in LABEL_CONVENTIONS:
+        raise CorpusError(
+            f"label_convention must be one of {LABEL_CONVENTIONS}, "
+            f"got {label_convention!r}"
+        )
+    if isinstance(pause_seconds, bool) or not isinstance(pause_seconds, (int, float)):
+        raise CorpusError(f"pause_seconds must be a number, got {pause_seconds!r}")
+    if pause_seconds < 0 or not math.isfinite(pause_seconds):
+        raise CorpusError(f"pause_seconds must be finite and >= 0, got {pause_seconds}")
+    pause_samples = _samples(float(pause_seconds))
+    if pause_seconds > 0 and pause_samples == 0:
+        raise CorpusError(
+            f"pause_seconds={pause_seconds} rounds to zero samples at {SAMPLE_RATE} Hz"
+        )
 
     out_path = Path(out_dir)
     if out_path.exists():
@@ -408,7 +585,7 @@ def generate_corpus(
     for index in range(n_episodes):
         ep_id = f"ep{index:03d}"
         n_ads = 0 if index in ad_free else rng.randrange(1, max_ads_per_episode + 1)
-        parts = _plan_episode(rng, n_ads)
+        parts = _plan_episode(rng, n_ads, pause_samples)
         _lay_out(parts)
 
         # render each part, reusing the already-rendered creative for ad parts
@@ -416,6 +593,11 @@ def generate_corpus(
         for part_index, part in enumerate(parts):
             if part.kind == "ad":
                 rendered.append(creative_paths[part.source_id])
+                continue
+            if part.kind == "pause":
+                chunk = work_dir / f"{ep_id}_{part_index:02d}_pause.wav"
+                _synthesize(SILENCE_LAVFI, part.duration_seconds, chunk)
+                rendered.append(chunk)
                 continue
             voice = next(v for v in CONTENT_VOICES if v["id"] == part.source_id)
             chunk = work_dir / f"{ep_id}_{part_index:02d}_{part.source_id}.wav"
@@ -432,22 +614,13 @@ def generate_corpus(
                 "path": episode_path.relative_to(out_path).as_posix(),
                 "duration_seconds": total_samples / SAMPLE_RATE,
                 "duration_samples": total_samples,
-                "ads": [
-                    {
-                        "start": part.start,
-                        "end": part.end,
-                        "creative_id": part.source_id,
-                        "creative_path": creative_paths[part.source_id]
-                        .relative_to(out_path)
-                        .as_posix(),
-                    }
-                    for part in parts
-                    if part.kind == "ad"
-                ],
+                "ads": _ad_records(parts, creative_paths, out_path, label_convention),
                 "parts": [
                     {
                         "kind": part.kind,
                         "source_id": part.source_id,
+                        "role": part.role,
+                        "ad_index": part.ad_index,
                         "start": part.start,
                         "end": part.end,
                         "duration_seconds": part.duration_seconds,
@@ -466,6 +639,9 @@ def generate_corpus(
         "seed": seed,
         "sample_rate": SAMPLE_RATE,
         "ground_truth": "exact-by-construction",
+        "pause_seconds": float(pause_seconds),
+        "pause_samples": pause_samples,
+        "label_convention": label_convention,
         "creatives": creative_records,
         "episodes": episodes,
     }
@@ -480,9 +656,31 @@ def load_manifest(corpus_dir: Path | str) -> dict:
     return json.loads((Path(corpus_dir) / MANIFEST_NAME).read_text(encoding="utf-8"))
 
 
-def gold_intervals(episode: dict) -> List[List[float]]:
-    """Gold ad intervals for one manifest episode, ready for ``scoring.score``."""
-    return [[ad["start"], ad["end"]] for ad in episode["ads"]]
+def gold_intervals(
+    episode: dict, convention: Optional[str] = None
+) -> List[List[float]]:
+    """Gold ad intervals for one manifest episode, ready for ``scoring.score``.
+
+    ``convention`` selects which reading of the boundary is returned:
+
+    * ``"break_including_pause"`` -- from the last content sound to the first content
+      sound, so the bracketing silence belongs to the break.  This is the project
+      default; see ``corpus/real/README.md`` for why.
+    * ``"creative_only"``         -- the ad audio alone, pauses left as content.
+
+    ``None`` returns the manifest's own ``start``/``end``, i.e. whatever convention the
+    corpus was generated under.  Pass an explicit convention when you need to compare
+    the two -- the difference is large enough to reverse conclusions.
+    """
+    if convention is None:
+        return [[ad["start"], ad["end"]] for ad in episode["ads"]]
+    if convention == CONVENTION_BREAK_INCLUDING_PAUSE:
+        return [[ad["break_start"], ad["break_end"]] for ad in episode["ads"]]
+    if convention == CONVENTION_CREATIVE_ONLY:
+        return [[ad["creative_start"], ad["creative_end"]] for ad in episode["ads"]]
+    raise CorpusError(
+        f"convention must be one of {LABEL_CONVENTIONS} or None, got {convention!r}"
+    )
 
 
 def _main(argv: Optional[Sequence[str]] = None) -> int:
@@ -496,6 +694,18 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--episodes", type=int, default=6)
     parser.add_argument("--ad-free", type=int, default=2)
+    parser.add_argument(
+        "--pause",
+        type=float,
+        default=DEFAULT_PAUSE_SECONDS,
+        help="seconds of silence bracketing each ad (0 = the original pause-free corpus)",
+    )
+    parser.add_argument(
+        "--convention",
+        choices=LABEL_CONVENTIONS,
+        default=DEFAULT_LABEL_CONVENTION,
+        help="which reading of an ad boundary becomes the manifest gold",
+    )
     args = parser.parse_args(argv)
 
     manifest = generate_corpus(
@@ -503,11 +713,14 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
         seed=args.seed,
         n_episodes=args.episodes,
         n_ad_free_episodes=args.ad_free,
+        pause_seconds=args.pause,
+        label_convention=args.convention,
     )
     total_ads = sum(len(ep["ads"]) for ep in manifest["episodes"])
     print(
         f"wrote {len(manifest['episodes'])} episodes "
-        f"({total_ads} ad insertions) to {args.out}/{MANIFEST_NAME}"
+        f"({total_ads} ad insertions, {manifest['pause_seconds']}s pause bracketing, "
+        f"convention={manifest['label_convention']}) to {args.out}/{MANIFEST_NAME}"
     )
     return 0
 

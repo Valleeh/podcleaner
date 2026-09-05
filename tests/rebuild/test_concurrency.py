@@ -33,7 +33,7 @@ from podcleaner.core.db import Database
 N_EPISODES = 50
 N_WORKERS = 8
 LEASE = 30.0            # far longer than any job: no expiry during the run
-DEADLINE = 240.0
+DEADLINE = 120.0        # ~600x a healthy run; bounds a hung mutant
 STAGES = ("discovered", "fetched", "analyzed", "cut")
 
 

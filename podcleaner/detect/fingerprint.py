@@ -187,9 +187,14 @@ class MatchThresholds:
     #: creative.  Chance collisions are flat; a real hit is a spike.
     min_vote_ratio: float = 4.0
     #: Minimum fraction of the reference's own hashes that must land in the bin.
-    min_vote_coverage: float = 0.15
+    #: Deliberately weak: a splice that is off the analysis grid halves the number of
+    #: reproducible peaks, so this is a sanity floor, not the discriminator.
+    min_vote_coverage: float = 0.04
     #: Mean per-frame mel cosine.  Gain invariant.
-    min_shape: float = 0.90
+    min_shape: float = 0.98
+    #: Fraction of frames whose mel cosine is at least ``FRAME_AGREE_COSINE``.  The
+    #: sharpest of the three verification statistics.
+    min_frame_agreement: float = 0.90
     #: Pearson r of the mean-removed log-mel matrices, when applicable.
     min_struct: float = 0.55
     #: Below this per-band structural std (in log units) the reference is treated as
@@ -197,6 +202,9 @@ class MatchThresholds:
     struct_floor: float = 0.08
     #: Overall confidence gate.
     min_confidence: float = 0.60
+    #: How many offset bins per creative are worth verifying.  Verification is cheap;
+    #: a repetitive creative can tie across many bins, so this is generous.
+    max_candidates: int = 48
     #: Reject matches shorter than this after clipping to the query.
     min_match_seconds: float = 2.0
     #: Fraction of the reference that must be present in the query.
@@ -407,10 +415,43 @@ class Fingerprint:
     """Landmark hashes plus the mel profile used for verification."""
 
     pairs: np.ndarray  # (n, 2) int64: [hash, anchor_frame]
-    mel: np.ndarray  # (frames, n_mels) float32
+    mel: np.ndarray  # (frames, n_mels) float32, frame origin = sample 0
     n_samples: int
     params: FingerprintParams = DEFAULT_PARAMS
     algo_version: int = ALGO_VERSION
+    #: Extra views of the same audio whose frame grid starts at a non-zero sample
+    #: offset, as ``(sample_offset, mel)`` / ``(sample_offset, pairs)``.  Only the
+    #: *query* side needs these -- see :data:`VERIFY_PHASES` -- and they are
+    #: deliberately **not** serialised, so ``to_bytes`` stays a pure function of the
+    #: audio and the parameters.
+    extra_mels: tuple = ()
+    extra_pairs: tuple = ()
+    n_phases: int = 1
+
+    def mel_views(self) -> list:
+        """``[(sample_offset, mel), ...]``, phase 0 first."""
+        return [(0, self.mel), *self.extra_mels]
+
+    @property
+    def sub_hop(self) -> int:
+        """Size of one sub-frame unit, in samples (``hop / n_phases``)."""
+        return self.params.hop // self.n_phases
+
+    def query_positions(self) -> np.ndarray:
+        """``(n, 2)`` int64 ``[hash, position]`` over every phase.
+
+        ``position`` counts :attr:`sub_hop` units from sample 0, so hashes extracted on
+        different frame grids share one coordinate system and can be histogrammed
+        together.  Reference frames are scaled by ``n_phases`` at join time.
+        """
+        k = self.n_phases
+        blocks = [np.stack([self.pairs[:, 0], self.pairs[:, 1] * k], axis=1)]
+        for shift, pr in self.extra_pairs:
+            if pr.shape[0] == 0:
+                continue
+            phase = shift // max(self.sub_hop, 1)
+            blocks.append(np.stack([pr[:, 0], pr[:, 1] * k + phase], axis=1))
+        return np.concatenate(blocks, axis=0) if blocks else np.zeros((0, 2), np.int64)
 
     @property
     def n_frames(self) -> int:
@@ -468,37 +509,70 @@ class Fingerprint:
         return hashlib.sha256(self.to_bytes()).hexdigest()
 
 
+#: Sub-hop phases the verifier evaluates on the query side.
+#:
+#: A splice does not respect our 256-sample frame grid.  When an ad starts half a hop
+#: off the grid, every analysis frame straddles the same audio differently from the
+#: reference and the measured similarity collapses -- for a transient-rich creative it
+#: fell from 1.00 to 0.88, i.e. below any threshold that also excludes impostors.  So
+#: the query is analysed at four frame origins (0, hop/4, hop/2, 3*hop/4) and the
+#: verifier takes the best.  This also refines the reported offset to hop/4 = 4 ms.
+VERIFY_PHASES = 4
+
+
 def fingerprint_samples(
-    samples: np.ndarray, params: FingerprintParams = DEFAULT_PARAMS
+    samples: np.ndarray,
+    params: FingerprintParams = DEFAULT_PARAMS,
+    *,
+    n_phases: int = 1,
 ) -> Fingerprint:
     x = np.asarray(samples, dtype=np.float32).reshape(-1)
     power = _stft_power(x, params)
     frames, bins = _pick_peaks(power, params)
+    extra_mels, extra_pairs = [], []
+    for p in range(1, max(n_phases, 1)):
+        shift = (p * params.hop) // n_phases
+        if shift <= 0 or shift >= x.size:
+            continue
+        pw = _stft_power(x[shift:], params)
+        pf, pb = _pick_peaks(pw, params)
+        extra_mels.append((shift, _mel(pw, params)))
+        extra_pairs.append((shift, _landmarks(pf, pb, params)))
     return Fingerprint(
         pairs=_landmarks(frames, bins, params),
         mel=_mel(power, params),
         n_samples=int(x.size),
         params=params,
+        extra_mels=tuple(extra_mels),
+        extra_pairs=tuple(extra_pairs),
+        n_phases=max(n_phases, 1),
     )
 
 
 def fingerprint_file(
-    path: "str | os.PathLike[str]", params: FingerprintParams = DEFAULT_PARAMS
+    path: "str | os.PathLike[str]",
+    params: FingerprintParams = DEFAULT_PARAMS,
+    *,
+    n_phases: int = 1,
 ) -> Fingerprint:
-    return fingerprint_samples(decode_audio(path, params.sample_rate), params)
+    return fingerprint_samples(
+        decode_audio(path, params.sample_rate), params, n_phases=n_phases
+    )
 
 
 def _as_fingerprint(
     audio: "str | os.PathLike[str] | np.ndarray | Fingerprint",
     params: FingerprintParams,
+    *,
+    n_phases: int = 1,
 ) -> Fingerprint:
     if isinstance(audio, Fingerprint):
         if audio.params != params:
             raise FingerprintError("fingerprint parameter mismatch")
         return audio
     if isinstance(audio, np.ndarray):
-        return fingerprint_samples(audio, params)
-    return fingerprint_file(audio, params)
+        return fingerprint_samples(audio, params, n_phases=n_phases)
+    return fingerprint_file(audio, params, n_phases=n_phases)
 
 
 # --------------------------------------------------------------------------------------
@@ -506,10 +580,14 @@ def _as_fingerprint(
 # --------------------------------------------------------------------------------------
 
 
+#: A frame counts as "agreeing" when its mel cosine is at least this.
+FRAME_AGREE_COSINE = 0.995
+
+
 def _shape_struct(
     ref_mel: np.ndarray, qry_mel: np.ndarray
-) -> tuple[float, Optional[float], float]:
-    """Return ``(shape, struct, ref_structural_std)`` for two aligned mel windows.
+) -> tuple[float, float, Optional[float], float]:
+    """Return ``(shape, agree, struct, ref_structural_std)`` for two aligned mel windows.
 
     ``shape``  : mean per-frame cosine of L2-normalised linear mel energies.  Scaling
                  either signal by a constant leaves every frame's unit vector unchanged,
@@ -521,7 +599,7 @@ def _shape_struct(
     """
     n = min(ref_mel.shape[0], qry_mel.shape[0])
     if n == 0:
-        return 0.0, None, 0.0
+        return 0.0, 0.0, None, 0.0
     a = ref_mel[:n].astype(np.float64)
     b = qry_mel[:n].astype(np.float64)
 
@@ -529,9 +607,14 @@ def _shape_struct(
     nb = np.linalg.norm(b, axis=1)
     live = (na > 1e-12) & (nb > 1e-12)
     if not live.any():
-        return 0.0, None, 0.0
-    cos = np.sum(a[live] * b[live], axis=1) / (na[live] * nb[live])
-    shape = float(np.mean(np.clip(cos, -1.0, 1.0)))
+        return 0.0, 0.0, None, 0.0
+    cos = np.clip(np.sum(a[live] * b[live], axis=1) / (na[live] * nb[live]), -1.0, 1.0)
+    shape = float(np.mean(cos))
+    # The *fraction* of frames that agree is far more discriminative than their mean.
+    # An impostor that shares a carrier but differs in a short recurring event (a beep
+    # at another pitch) still averages ~0.96; it fails badly on the frames where the
+    # event happens, and this statistic sees exactly those frames.
+    agree = float(np.count_nonzero(cos >= FRAME_AGREE_COSINE)) / float(n)
 
     la = np.log(a + 1e-10)
     lb = np.log(b + 1e-10)
@@ -540,7 +623,7 @@ def _shape_struct(
     ref_std = float(np.sqrt(np.mean(ca**2)))
     denom = float(np.linalg.norm(ca) * np.linalg.norm(cb))
     struct = float((ca * cb).sum() / denom) if denom > 1e-12 else None
-    return shape, struct, ref_std
+    return shape, agree, struct, ref_std
 
 
 def _bins_as_arrays(bins: dict) -> tuple[np.ndarray, np.ndarray]:
@@ -588,6 +671,7 @@ class Match:
     vote_ratio: float = 0.0
     coverage: float = 0.0
     shape: float = 0.0
+    agree: float = 0.0
     struct: Optional[float] = None
     offset_frames: int = 0
 
@@ -836,19 +920,24 @@ class FingerprintLibrary:
 
     # ------------------------------------------------------------------ matching
 
-    def _vote_histogram(self, pairs: np.ndarray) -> dict[str, dict[int, int]]:
-        """``{creative_id: {offset_frames: votes}}`` from a SQL join on the posting list."""
+    def _vote_histogram(self, positions: np.ndarray, n_phases: int) -> dict[str, dict[int, int]]:
+        """``{creative_id: {offset_sub_frames: votes}}`` from a SQL join on the postings.
+
+        Offsets are in sub-frame units of ``hop / n_phases`` samples: query positions
+        already are, and reference frames are scaled by ``n_phases`` in the join.
+        """
         conn = self.conn
         conn.execute("DROP TABLE IF EXISTS temp.fp_query")
-        conn.execute("CREATE TEMP TABLE fp_query (hash INTEGER NOT NULL, frame INTEGER NOT NULL)")
+        conn.execute("CREATE TEMP TABLE fp_query (hash INTEGER NOT NULL, pos INTEGER NOT NULL)")
         conn.executemany(
-            "INSERT INTO temp.fp_query (hash, frame) VALUES (?,?)",
-            ((int(h), int(t)) for h, t in pairs),
+            "INSERT INTO temp.fp_query (hash, pos) VALUES (?,?)",
+            ((int(h), int(t)) for h, t in positions),
         )
         rows = conn.execute(
-            "SELECT h.creative_id AS cid, (q.frame - h.frame) AS off, COUNT(*) AS votes "
+            "SELECT h.creative_id AS cid, (q.pos - ? * h.frame) AS off, COUNT(*) AS votes "
             "FROM temp.fp_query q JOIN fp_hashes h ON h.hash = q.hash "
-            "GROUP BY cid, off"
+            "GROUP BY cid, off",
+            (int(n_phases),),
         ).fetchall()
         conn.execute("DROP TABLE IF EXISTS temp.fp_query")
         hist: dict[str, dict[int, int]] = {}
@@ -872,34 +961,38 @@ class FingerprintLibrary:
         th = thresholds or self.thresholds
         if len(self) == 0:
             return []
-        qfp = _as_fingerprint(episode_audio, self.params)
+        qfp = _as_fingerprint(episode_audio, self.params, n_phases=VERIFY_PHASES)
         if qfp.pairs.shape[0] == 0:
             return []
 
-        hist = self._vote_histogram(qfp.pairs)
+        k = qfp.n_phases
+        hist = self._vote_histogram(qfp.query_positions(), k)
         totals = {
             r[0]: int(r[1])
             for r in self.conn.execute("SELECT creative_id, n_hashes FROM fp_creatives")
         }
 
         candidates: list[Match] = []
-        q_frames = qfp.mel.shape[0]
+        q_sub = qfp.mel.shape[0] * k
         for cid, bins in hist.items():
             ref_mel = self._ref_mel(cid)
+            ref_sub = ref_mel.shape[0] * k
             n_ref_hashes = max(totals.get(cid, 1), 1)
             offs, counts = _bins_as_arrays(bins)
 
             # Only offsets that both clear the absolute floor and stand out from the
             # background are worth verifying.
             ranked = sorted(bins.items(), key=lambda kv: (-kv[1], kv[0]))
-            for off, votes in ranked[:16]:
+            for off, votes in ranked[: th.max_candidates]:
                 if votes < th.min_votes:
                     break
-                ratio = _significance(offs, counts, int(off), ref_mel.shape[0], q_frames)
+                ratio = _significance(offs, counts, int(off), ref_sub, q_sub)
                 coverage = votes / n_ref_hashes
                 if ratio < th.min_vote_ratio or coverage < th.min_vote_coverage:
                     continue
-                cand = self._verify(cid, ref_mel, qfp, int(off), th, votes, ratio, coverage)
+                cand = self._verify(
+                    cid, ref_mel, qfp, int(off) * qfp.sub_hop, th, votes, ratio, coverage
+                )
                 if cand is not None:
                     candidates.append(cand)
 
@@ -916,56 +1009,68 @@ class FingerprintLibrary:
         creative_id: str,
         ref_mel: np.ndarray,
         qfp: Fingerprint,
-        offset: int,
+        offset_samples: int,
         th: MatchThresholds,
         votes: int,
         ratio: float,
         coverage: float,
     ) -> Optional[Match]:
-        """Second stage: does the audio at ``offset`` actually look like the creative?"""
+        """Second stage: does the audio at ``offset_samples`` look like the creative?
+
+        Searches a small grid of (integer frame delta) x (sub-hop phase).  The phase
+        search is not cosmetic: a splice that is half a hop off the analysis grid drops
+        the measured similarity of a *correct* match well below the level an impostor
+        reaches, so without it no single threshold can satisfy both S4.1 and S4.3.
+        """
         params = self.params
         ref_frames = ref_mel.shape[0]
-        q_frames = qfp.mel.shape[0]
 
-        best: Optional[tuple[float, int, float, Optional[float]]] = None
-        # A one-frame search either side absorbs rounding when the splice point is not a
-        # whole number of hops (and mp3 encoder delay).
-        for delta in (-2, -1, 0, 1, 2):
-            start = offset + delta
-            lo = max(start, 0)
-            hi = min(start + ref_frames, q_frames)
-            if hi - lo <= 0:
-                continue
-            ref_win = ref_mel[lo - start : hi - start]
-            qry_win = qfp.mel[lo:hi]
-            overlap = (hi - lo) / ref_frames
-            if overlap < th.min_overlap_fraction:
-                continue
-            if params.frames_to_seconds(hi - lo) < th.min_match_seconds:
-                continue
-            shape, struct, ref_std = _shape_struct(ref_win, qry_win)
-            if ref_std < th.struct_floor:
-                # A stationary reference carries no temporal structure; the structural
-                # test would be reading numerical noise, so we do not apply it.
-                effective = shape
-                struct_reported: Optional[float] = None
-            else:
-                effective = min(shape, max(struct if struct is not None else 0.0, 0.0))
-                struct_reported = struct
-            if best is None or effective > best[0]:
-                best = (effective, start, shape, struct_reported)
+        best = None  # (confidence, start_sample, shape, agree, struct)
+        for phase_offset, qmel in qfp.mel_views():
+            q_frames = qmel.shape[0]
+            # Convert the candidate's absolute sample position onto this phase's grid.
+            base = (offset_samples - phase_offset) / params.hop
+            for delta in (-2, -1, 0, 1, 2):
+                start = int(round(base)) + delta
+                lo = max(start, 0)
+                hi = min(start + ref_frames, q_frames)
+                if hi - lo <= 0:
+                    continue
+                if (hi - lo) / ref_frames < th.min_overlap_fraction:
+                    continue
+                if params.frames_to_seconds(hi - lo) < th.min_match_seconds:
+                    continue
+                shape, agree, struct, ref_std = _shape_struct(
+                    ref_mel[lo - start : hi - start], qmel[lo:hi]
+                )
+                if ref_std < th.struct_floor:
+                    # A stationary reference carries no temporal structure; the
+                    # structural test would be reading numerical noise, so it is skipped
+                    # and reported as None rather than silently passed.
+                    confidence = min(shape, agree)
+                    struct_reported: Optional[float] = None
+                else:
+                    confidence = min(
+                        shape, agree, max(struct if struct is not None else 0.0, 0.0)
+                    )
+                    struct_reported = struct
+                start_sample = start * params.hop + phase_offset
+                if best is None or confidence > best[0]:
+                    best = (confidence, start_sample, shape, agree, struct_reported)
 
         if best is None:
             return None
-        confidence, start_frame, shape, struct = best
+        confidence, start_sample, shape, agree, struct = best
         if shape < th.min_shape:
+            return None
+        if agree < th.min_frame_agreement:
             return None
         if struct is not None and struct < th.min_struct:
             return None
         if confidence < th.min_confidence:
             return None
 
-        start_s = params.frames_to_seconds(start_frame)
+        start_s = start_sample / params.sample_rate
         end_s = start_s + ref_frames * params.hop / params.sample_rate
         return Match(
             creative_id=creative_id,
@@ -976,8 +1081,9 @@ class FingerprintLibrary:
             vote_ratio=float(ratio),
             coverage=float(coverage),
             shape=float(shape),
+            agree=float(agree),
             struct=struct,
-            offset_frames=int(start_frame),
+            offset_frames=int(round(start_sample / params.hop)),
         )
 
     def explain(
@@ -989,8 +1095,11 @@ class FingerprintLibrary:
         Used by the tests to report the actual separation between true matches and the
         nearest miss, rather than only asserting a boolean.
         """
-        qfp = _as_fingerprint(episode_audio, self.params)
-        hist = self._vote_histogram(qfp.pairs) if qfp.pairs.shape[0] else {}
+        qfp = _as_fingerprint(episode_audio, self.params, n_phases=VERIFY_PHASES)
+        k = qfp.n_phases
+        hist = (
+            self._vote_histogram(qfp.query_positions(), k) if qfp.pairs.shape[0] else {}
+        )
         totals = {
             r[0]: int(r[1])
             for r in self.conn.execute("SELECT creative_id, n_hashes FROM fp_creatives")
@@ -1006,6 +1115,7 @@ class FingerprintLibrary:
                         "vote_ratio": 0.0,
                         "coverage": 0.0,
                         "shape": 0.0,
+                        "agree": 0.0,
                         "struct": None,
                         "confidence": 0.0,
                         "offset_frames": None,
@@ -1016,23 +1126,24 @@ class FingerprintLibrary:
             off, votes = max(bins.items(), key=lambda kv: (kv[1], -kv[0]))
             ref_mel = self._ref_mel(cid)
             significance = _significance(
-                offs, counts, int(off), ref_mel.shape[0], qfp.mel.shape[0]
+                offs, counts, int(off), ref_mel.shape[0] * k, qfp.mel.shape[0] * k
             )
             m = self._verify(
                 cid,
                 ref_mel,
                 qfp,
-                int(off),
+                int(off) * qfp.sub_hop,
                 replace(
                     self.thresholds,
                     min_shape=-1.0,
+                    min_frame_agreement=-1.0,
                     min_struct=-2.0,
                     min_confidence=-2.0,
                     min_overlap_fraction=0.0,
                     min_match_seconds=0.0,
                 ),
                 votes,
-                votes / background if background else float("inf"),
+                significance,
                 votes / max(totals.get(cid, 1), 1),
             )
             out.append(
@@ -1042,6 +1153,7 @@ class FingerprintLibrary:
                     "vote_ratio": significance,
                     "coverage": votes / max(totals.get(cid, 1), 1),
                     "shape": m.shape if m else 0.0,
+                    "agree": m.agree if m else 0.0,
                     "struct": m.struct if m else None,
                     "confidence": m.confidence if m else 0.0,
                     "offset_frames": int(off),

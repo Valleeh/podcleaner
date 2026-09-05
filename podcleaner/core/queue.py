@@ -163,13 +163,17 @@ class WorkQueue:
                        SELECT id
                          FROM episodes
                         WHERE state IN ({placeholders})
+                          -- LEASE PREDICATE. Removing it lets two workers hold
+                          -- one row at once (contract mutation 2a).
+                          AND (claimed_at IS NULL
+                               OR claimed_at + COALESCE(lease_seconds, 0) * 1e12 <= ?)
                         ORDER BY updated_at ASC, id ASC
                         LIMIT 1
                  )
                 RETURNING id, guid, state, attempts, claimed_at, lease_seconds,
                           lease_token, owner, audio_url, title, payload
                 """,
-                (now, self.lease_seconds, token, self.worker_id, now, *wanted),
+                (now, self.lease_seconds, token, self.worker_id, now, *wanted, now),
             )
             row = cur.fetchone()
             cur.fetchall()  # drain, so the statement is fully stepped
@@ -215,7 +219,7 @@ class WorkQueue:
               FROM episodes
              WHERE state IN ({placeholders})
                AND claimed_at IS NOT NULL
-               AND claimed_at + COALESCE(lease_seconds, 0) <= ?
+               AND claimed_at + COALESCE(lease_seconds, 0) * 1e12 <= ?
                AND attempts + 1 >= CASE WHEN ? IS NULL THEN max_attempts ELSE ? END
             """,
             (*wanted, now, self.max_attempts, self.max_attempts),
