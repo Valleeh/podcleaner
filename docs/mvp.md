@@ -49,7 +49,7 @@ break when they do.
 Each step ends with the `janitor` agent: delete what the step made unnecessary, check the
 docs still match, run the tests, commit. Do not start the next step before that.
 
-### 1. Close the guard — `mvp-build`, reviewed by `cut-guard`
+### [x] 1. Close the guard — `mvp-build`, reviewed by `cut-guard`
 
 The `degraded` flag is set when a model reply stays corrupted after the retry, but no cut
 decision reads it, and `is_cut` is static so it cannot. Two defaults lean the same way: an
@@ -62,7 +62,7 @@ the more cautious category on merge.
 *Done when* the corrupted-reply test asserts that nothing cuttable survives, and `./run test`
 is green.
 
-### 2. The skeleton: feed in, audio out — `mvp-build`
+### [ ] 2. The skeleton: feed in, audio out — `mvp-build`
 
 No detection in this step at all.
 
@@ -77,7 +77,7 @@ No detection in this step at all.
 
 *Done when* an LdN episode plays ad-free in a real podcatcher and no detection code ran.
 
-### 3. Cutting — `mvp-build`, reviewed by `cut-guard`
+### [ ] 3. Cutting — `mvp-build`, reviewed by `cut-guard`
 
 Port `old/podcleaner/detect/boundaries.py` and delete everything the MVP path does not
 call. Bring `old/tests/rebuild/test_boundaries.py` with it. Then `podcleaner/cut.py`: cut
@@ -85,14 +85,14 @@ with ffmpeg on snapped edges, and refuse when no clean edge is within tolerance.
 
 *Done when* a known ad is cut out of a pinned fixture and both edges sound clean.
 
-### 4. Wire detection into the path — `mvp-build`, reviewed by `cut-guard`
+### [ ] 4. Wire detection into the path — `mvp-build`, reviewed by `cut-guard`
 
 `podcleaner/analyze.py`: transcribe, classify, snap, cut. Reached from `server.py` only
 when step 2's fetch found no clean master.
 
 *Done when* one Solved episode goes from feed to cut audio end to end.
 
-### 5. Prove the gates bite — `cut-guard` writes the mutations, `mvp-build` wires them
+### [ ] 5. Prove the gates bite — `cut-guard` writes the mutations, `mvp-build` wires them
 
 Perturb a cached prediction — shift an edge by ten seconds, drop a segment, add a five
 second cut inside editorial — and assert the matching gate fails. Nothing yet proves the

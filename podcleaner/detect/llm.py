@@ -322,8 +322,12 @@ def resolve_segments(raw: dict, cues: Sequence[Cue], *, chunk: int = 0) -> Tuple
             continue
         category = str(item.get("category", "")).strip()
         if category not in CATEGORIES:
-            warnings.append(f"segment {i}: unknown category {category!r}, treated as sponsor_read")
-            category = "sponsor_read"
+            # Guessing a category invents evidence the model never gave us, and guessing
+            # sponsor_read (the v1 default) leans straight into a cut.  An unrecognised
+            # category is unidentified content: drop the segment rather than cut on a
+            # category nobody named.
+            warnings.append(f"segment {i}: unknown category {category!r}, dropped")
+            continue
         try:
             confidence = float(item.get("confidence", 0.0))
         except (TypeError, ValueError):
@@ -331,8 +335,12 @@ def resolve_segments(raw: dict, cues: Sequence[Cue], *, chunk: int = 0) -> Tuple
         if confidence != confidence:  # NaN
             confidence = 0.0
         if not 0.0 <= confidence <= 1.0:
-            warnings.append(f"segment {i}: confidence {confidence} outside 0-1, clamped")
-            confidence = min(1.0, max(0.0, confidence))
+            # Clamping (as v1 did) turns the model's least certain call -- a percentage
+            # or a 0-10 scale reported by mistake -- into maximum confidence: a guess
+            # straight into a cut, exactly like clamping a bad cue index would be. Drop
+            # the segment instead, the same as the cue-range case above.
+            warnings.append(f"segment {i}: confidence {confidence} outside 0-1, dropped")
+            continue
         out.append(
             AdSegment(
                 start_cue=start_cue,
@@ -346,6 +354,14 @@ def resolve_segments(raw: dict, cues: Sequence[Cue], *, chunk: int = 0) -> Tuple
             )
         )
     return out, warnings
+
+
+def _caution_rank(category: str) -> int:
+    """How many of the built-in :data:`POLICIES` cut ``category``.  Lower means more of
+    them leave it alone, so it is the category to prefer when two overlapping segments
+    disagree about what the same audio is -- picking the one more of our own policies
+    already treat as not-an-ad, per the one rule: an uncertain edge is not cut."""
+    return sum(1 for cats in POLICIES.values() if category in cats)
 
 
 def merge_segments(
@@ -380,8 +396,30 @@ def merge_segments(
         if merged and seg.start < merged[-1].end + touch - 1e-9:
             prev = merged[-1]
             if seg.chunk != prev.chunk and seg.start >= prev.start and seg.end <= prev.end + 1e-9:
-                # the same segment seen from an overlapping chunk: silent
-                prev.confidence = max(prev.confidence, seg.confidence)
+                # A different chunk's segment nested inside this one is not necessarily
+                # the same ad seen twice -- it may be a wide, low-confidence guess from
+                # one chunk and a tightly-bounded call from another.  Keep the narrower,
+                # better-bounded interval and treat it exactly like any other conflicting
+                # overlap: the lower confidence, and the more cautious category.  Only a
+                # *true* duplicate (same category, same bounds) stays silent; anything
+                # else is two calls disagreeing about the same audio, and narrowing the
+                # interval discards part of what ``prev`` claimed, so say so.
+                same_claim = (
+                    seg.category == prev.category
+                    and abs(seg.start - prev.start) < 1e-9
+                    and abs(seg.end - prev.end) < 1e-9
+                )
+                if not same_claim:
+                    warnings.append(
+                        f"segment from another chunk narrowed {format_clock(prev.start)}-{format_clock(prev.end)} "
+                        f"to {format_clock(seg.start)}-{format_clock(seg.end)} ({prev.duration - seg.duration:.0f}s trimmed)"
+                    )
+                prev.reason = f"{prev.reason} + {seg.reason}".strip(" +")
+                if seg.category != prev.category and _caution_rank(seg.category) < _caution_rank(prev.category):
+                    prev.category = seg.category
+                prev.start, prev.end = seg.start, seg.end
+                prev.start_cue, prev.end_cue = seg.start_cue, seg.end_cue
+                prev.confidence = min(prev.confidence, seg.confidence)
                 continue
             warnings.append(
                 f"segments overlap ({format_clock(prev.start)}-{format_clock(prev.end)} and "
@@ -392,6 +430,10 @@ def merge_segments(
             prev.confidence = min(prev.confidence, seg.confidence)
             if seg.category != prev.category:
                 prev.reason = f"{prev.reason} + {seg.reason}".strip(" +")
+                if _caution_rank(seg.category) < _caution_rank(prev.category):
+                    # Two classifications disagree about the same audio: keep whichever
+                    # one fewer policies would cut, not whichever sorted first.
+                    prev.category = seg.category
         else:
             merged.append(dataclasses.replace(seg))
     merged.extend(implausible)
@@ -433,19 +475,28 @@ class AdAnalysis:
         ``min_confidence`` or it is longer than ``max_cut_duration`` -- no advertisement
         runs for ten minutes, but a feed drop of a whole other episode does, and cutting
         that would leave nothing.  Hesitant or implausible calls surface instead of
-        editing audio.
+        editing audio.  When the analysis is :attr:`degraded`, nothing is cut at all,
+        however confident a surviving segment looks (see :meth:`is_cut`).
         """
         return [s.interval for s in self.segments if self.is_cut(s, policy, min_confidence, max_cut_duration)]
 
-    @staticmethod
     def is_cut(
+        self,
         segment: "AdSegment",
         policy: str = "promos",
         min_confidence: float = 0.5,
         max_cut_duration: float = DEFAULT_MAX_CUT_DURATION,
     ) -> bool:
+        """Whether ``segment`` should be cut under ``policy``.
+
+        Always ``False`` when this analysis is :attr:`degraded`: a chunk whose reply
+        stayed corrupted after the retry may be missing segments entirely, so nothing
+        found alongside it -- in that chunk or any other -- is trustworthy enough to cut.
+        The one rule outranks the policy: refuse to cut on uncertain evidence.
+        """
         return (
-            segment.category in POLICIES[policy]
+            not self.degraded
+            and segment.category in POLICIES[policy]
             and segment.confidence >= min_confidence
             and segment.duration <= max_cut_duration
         )

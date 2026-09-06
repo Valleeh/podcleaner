@@ -82,17 +82,44 @@ def test_resolve_drops_out_of_range_instead_of_clamping():
     assert any("dropped" in w for w in warnings)
 
 
-def test_resolve_repairs_swapped_bad_category_and_confidence():
+def test_resolve_repairs_swapped_cues():
     cues = _cues(10)
     segs, warnings = resolve_segments(
-        {"segments": [{"start_cue": 6, "end_cue": 4, "category": "nonsense", "confidence": 7, "reason": ""}]},
+        {"segments": [{"start_cue": 6, "end_cue": 4, "category": "sponsor_read", "confidence": 0.9, "reason": ""}]},
         cues,
     )
     assert len(segs) == 1
     assert (segs[0].start_cue, segs[0].end_cue) == (4, 6)
     assert segs[0].category == "sponsor_read"
-    assert segs[0].confidence == 1.0
-    assert len(warnings) == 3
+    assert segs[0].confidence == 0.9
+    assert len(warnings) == 1
+
+
+def test_resolve_drops_out_of_range_confidence_instead_of_clamping():
+    """Negative control.  Clamping (as v1 did) turns a model's least certain call -- a
+    percentage or a 0-10 scale reported by mistake instead of 0-1 -- into maximum
+    confidence: a guess straight into a cut.  Drop the segment instead, exactly like
+    the cue-range case above."""
+    cues = _cues(10)
+    segs, warnings = resolve_segments(
+        {"segments": [{"start_cue": 3, "end_cue": 5, "category": "sponsor_read", "confidence": 20, "reason": ""}]},
+        cues,
+    )
+    assert segs == []
+    assert any("confidence" in w and "dropped" in w for w in warnings)
+
+
+def test_resolve_drops_unknown_category_instead_of_guessing():
+    """Negative control.  v1 defaulted an unrecognised category to sponsor_read, which
+    guesses straight into a cut. That must not happen: an unknown category is
+    unidentified content and the segment is dropped instead."""
+    cues = _cues(10)
+    segs, warnings = resolve_segments(
+        {"segments": [{"start_cue": 4, "end_cue": 6, "category": "nonsense", "confidence": 0.99, "reason": ""}]},
+        cues,
+    )
+    assert segs == []
+    assert any("unknown category" in w and "dropped" in w for w in warnings)
 
 
 def test_resolve_requires_segments_list():
@@ -124,6 +151,47 @@ def test_merge_overlapping_segments_with_warning():
 def test_merge_duplicate_from_overlapping_chunk_is_silent():
     merged, warnings = merge_segments([_seg(100, 130, chunk=0), _seg(100, 130, chunk=1)])
     assert len(merged) == 1 and warnings == []
+
+
+def test_merge_nested_segment_from_another_chunk_keeps_the_narrower_bound():
+    """Negative control for a hole cut-guard found in the silent-duplicate branch: a
+    narrower, differently categorised segment from another chunk nested inside a wider
+    one is not necessarily the same ad seen twice (a wide low-confidence screen guess
+    and a tightly-bounded verify call can both land here). It must not silently win on
+    the wider interval, the higher confidence, or the less cautious category -- and
+    since it is not a true duplicate (bounds and category both differ), narrowing it
+    must be reported, not swallowed like an actual chunk-overlap duplicate is."""
+    wide = _seg(100, 160, "sponsor_read", 0.30, chunk=0)
+    narrow = _seg(120, 140, "self_promo", 0.99, chunk=1)
+    merged, warnings = merge_segments([wide, narrow])
+    assert len(merged) == 1
+    assert (merged[0].start, merged[0].end) == (120.0, 140.0), "the narrower, better-bounded interval wins"
+    assert merged[0].category == "self_promo", "the more cautious category wins"
+    assert merged[0].confidence == 0.30, "the lower confidence wins, never the higher one"
+    assert len(warnings) == 1 and "narrowed" in warnings[0] and "40s" in warnings[0]
+
+
+def test_merge_nested_same_category_still_combines_reasons():
+    """Negative control for a second hole cut-guard found: the reason concatenation used
+    to be gated on the categories differing, so a same-category conflict silently kept
+    the discarded wide segment's reason even though the surviving bounds are the narrow
+    segment's.  The reason must reflect both claims regardless of category."""
+    wide = AdSegment(26, 40, 100.0, 160.0, "sponsor_read", 0.30, "sounds like a produced spot", chunk=0)
+    narrow = AdSegment(31, 35, 120.0, 140.0, "sponsor_read", 0.99, "explicit URL and code", chunk=1)
+    merged, _ = merge_segments([wide, narrow])
+    assert len(merged) == 1 and (merged[0].start, merged[0].end) == (120.0, 140.0)
+    assert "sounds like a produced spot" in merged[0].reason
+    assert "explicit URL and code" in merged[0].reason
+
+
+def test_merge_keeps_the_more_cautious_category_regardless_of_order():
+    """Negative control.  Merging used to just keep whichever segment sorted first, so
+    the surviving category was an accident of order.  When two overlapping
+    classifications disagree, the one fewer policies would cut must win every time."""
+    merged, _ = merge_segments([_seg(0, 30, "sponsor_read"), _seg(20, 40, "self_promo")])
+    assert len(merged) == 1 and merged[0].category == "self_promo"
+    merged2, _ = merge_segments([_seg(0, 30, "self_promo"), _seg(20, 40, "sponsor_read")])
+    assert len(merged2) == 1 and merged2[0].category == "self_promo"
 
 
 def test_implausibly_long_segment_never_swallows_a_neighbour():
@@ -189,6 +257,18 @@ def test_cut_policy_and_max_duration():
     assert a.cut_intervals("promos", min_confidence=0.1) == [(0, 30), (60, 70)]
     d = a.to_dict()
     assert [s["cut"] for s in d["segments"]] == [True, False, False, False]
+
+
+def test_degraded_analysis_blocks_all_cutting():
+    """Negative control for the one rule.  A degraded reply may be missing segments
+    entirely, so nothing found alongside it is trustworthy -- not even the most
+    confident segment under the most permissive policy."""
+    from podcleaner.detect.llm import AdAnalysis
+
+    seg = _seg(0, 30, "sponsor_read", 1.0)
+    a = AdAnalysis(segments=[seg], degraded=True)
+    assert a.is_cut(seg, "all", min_confidence=0.0) is False
+    assert a.cut_intervals("all", min_confidence=0.0) == []
 
 
 def test_env_config_resolution(monkeypatch):
@@ -266,3 +346,6 @@ def test_classifier_gives_up_after_retry_and_marks_result_degraded():
     assert clf.calls == 2 and analysis.degraded is True
     assert [(s.start_cue, s.end_cue) for s in analysis.segments] == [(35, 42)], "salvageable part kept"
     assert any("dropped" in w for w in analysis.warnings)  # the 0-0 placeholder
+    # the guard: a degraded reply may be missing segments, so nothing found alongside it
+    # -- however confident -- may survive as a cut, under any policy.
+    assert analysis.cut_intervals("all", min_confidence=0.0) == [], "nothing cuttable may survive a degraded reply"
