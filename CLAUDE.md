@@ -18,7 +18,7 @@ in the MVP.
 
 There is no `python` and no `make` on this host. Use `./run`.
 
-    ./run test       # 92 offline unit tests, under a second
+    ./run test       # 166 offline unit tests, under two seconds
     ./run ads        # LLM suite, costs money
     ./run whisper    # whisper suite, minutes to hours
     ./run labels …   # label CLI: checklist / verify / finish
