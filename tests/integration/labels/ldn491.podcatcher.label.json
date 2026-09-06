@@ -1,0 +1,98 @@
+{
+  "schema_version": 3,
+  "episode": {
+    "id": "ldn491",
+    "podcast": "Lage der Nation",
+    "title": "LdN491 Krieg gegen Deutschland: Was tun gegen Russlands Angriff?",
+    "guid": "6e565d17-91ed-4692-9c30-78ca0459762d",
+    "feed_url": "https://feeds.lagedernation.org/feeds/ldn-mp3.xml",
+    "enclosure_url": "https://dts.podtrac.com/redirect.mp3/files.lagedernation.org/lagedernation/LdN491.mp3?ptm_source=feed&ptm_context=mp3&ptm_file=LdN491.mp3",
+    "audio_file": "LdN491.podcatcher.mp3",
+    "sha256": "10a2710e9d7d9b36540a203ad1c16a00acaf37b4f342189deb6097a0bec64d81",
+    "duration_seconds": 5643.7,
+    "variant": "podcatcher",
+    "user_agent": "AntennaPod/3.5.0"
+  },
+  "transcript": {
+    "name": "official",
+    "file": "LdN491.official.vtt",
+    "sha256": "76455b1f645dfae5c07ddb120ef42f43d1bcfbb86ac16d1fc87d476db43ca3f4",
+    "aligned_to": "clean",
+    "mapped_to_stitched_via": "dai/ldn491.json"
+  },
+  "provenance": {
+    "method": "mixed",
+    "drafted_by": "Claude (Fable 5.1), 2026-09-06, from transcript text and the DAI oracle; no listening",
+    "notes": "Inserted regions are exact splice points from podcleaner.eval.dai (clean vs podcatcher download). Host-read segments were located by reading the publisher transcript and mapped into this file's timeline; a human must confirm them by listening.",
+    "all_segments_verified": false
+  },
+  "labeler": null,
+  "labeled_at": "2026-09-06T08:58:03+00:00",
+  "status": "in_progress",
+  "label_convention": "cue_aligned",
+  "notes": null,
+  "ads": [
+    {
+      "start": 92.916,
+      "end": 130.968,
+      "category": "sponsor_read",
+      "inserted": true,
+      "ambiguous": false,
+      "source": "construction",
+      "verified": true,
+      "first_line": "Werbung.",
+      "last_line": "Details auf wattenfall.de/ratenzahlung",
+      "note": "server-inserted; splice frames 2581-3638"
+    },
+    {
+      "start": 1842.444,
+      "end": 1882.404,
+      "category": "sponsor_read",
+      "inserted": true,
+      "ambiguous": false,
+      "source": "construction",
+      "verified": true,
+      "first_line": "Verbrenntenreform, Energiepreise, Schuldenbremse. Kompliziert genug, eure Autover sicherung muss",
+      "last_line": "Geht jetzt auf vkb.de für mehr Infos.",
+      "note": "server-inserted; splice frames 51179-52289"
+    },
+    {
+      "start": 3558.456,
+      "end": 3596.508,
+      "category": "sponsor_read",
+      "inserted": true,
+      "ambiguous": false,
+      "source": "construction",
+      "verified": true,
+      "first_line": "Werbung.",
+      "last_line": "Details auf wattenfall.de/ratenzahlung",
+      "note": "server-inserted; splice frames 98846-99903"
+    },
+    {
+      "start": 5014.523,
+      "end": 5046.495,
+      "category": "cross_promo",
+      "inserted": false,
+      "ambiguous": true,
+      "source": "text",
+      "verified": false,
+      "start_cue": 1278,
+      "end_cue": 1287,
+      "first_line": "Ja, und zwar haben nämlich die Kollegen von The Rest is Politics dieses Interview",
+      "last_line": "klar ist Englisch, aber das wird ja viele von euch nicht daran hindern, da mal reinzuhören.",
+      "note": "hosts recommend 'The Rest is Politics' after it featured their interview; a spontaneous editorial recommendation of another show, so cutting or keeping it is a judgement call"
+    },
+    {
+      "start": 5524.416,
+      "end": 5590.512,
+      "category": "self_promo",
+      "inserted": true,
+      "ambiguous": true,
+      "source": "construction",
+      "verified": true,
+      "first_line": "Hallo zusammen, die Lage geht wieder auf Tour.",
+      "last_line": "wenn ihr wollt, am 28.10. in Düsseldorf und am 30.10. in München.",
+      "note": "server-inserted house promo: 'Die Lage geht wieder auf Tour', live-show tickets at lage.live. Inserted like an ad, but for the show itself; whether to cut it is a policy call, so it is a don't-care region. (server-inserted; splice frames 153456-155292)"
+    }
+  ]
+}

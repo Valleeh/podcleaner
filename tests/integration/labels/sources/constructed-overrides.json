@@ -1,0 +1,12 @@
+{
+  "_comment": "Per-region category overrides for server-inserted regions found by the DAI oracle. Boundaries stay exact (construction); only the category/ambiguity is a reading of the region's whisper transcript. Keyed by episode id, matched on the region start time (seconds, 3 decimals).",
+  "ldn491": [
+    {"start": 5524.416, "category": "self_promo", "ambiguous": true,
+     "note": "server-inserted house promo: 'Die Lage geht wieder auf Tour', live-show tickets at lage.live. Inserted like an ad, but for the show itself; whether to cut it is a policy call, so it is a don't-care region."}
+  ],
+  "ldn490": [
+    {"start": 4831.56, "category": "self_promo", "ambiguous": true,
+     "note": "server-inserted house promo (same 'Lage auf Tour' spot as in LdN491); don't-care region."}
+  ],
+  "solved-life-path": []
+}

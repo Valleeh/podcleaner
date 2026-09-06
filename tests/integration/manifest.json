@@ -1,0 +1,260 @@
+{
+  "schema": "podcleaner.fixtures/1",
+  "pinned_on": "2026-09-06",
+  "notes": "All three podcasts insert advertising server-side. 'clean' variants were fetched with curl's default User-Agent (curl/7.88.1) and match the publisher transcripts; 'podcatcher' variants were fetched with a podcatcher User-Agent and are what listeners receive. Audio and transcripts live under var/fixtures/ (gitignored); fetch with --download. Hacks on Tap has no clean master: its labelled file came from an earlier download and cannot be re-fetched byte-identically. 'duration' is the decoded length (ffmpeg -f null); 'duration_header' is ffprobe's header-based value, which is 22.5 s too long for the Solved files because of a wrong Xing header.",
+  "episodes": {
+    "ldn491": {
+      "podcast": "Lage der Nation",
+      "language": "de",
+      "title": "LdN491 Krieg gegen Deutschland: Was tun gegen Russlands Angriff?",
+      "guid": "6e565d17-91ed-4692-9c30-78ca0459762d",
+      "feed_url": "https://feeds.lagedernation.org/feeds/ldn-mp3.xml",
+      "enclosure_url": "https://dts.podtrac.com/redirect.mp3/files.lagedernation.org/lagedernation/LdN491.mp3?ptm_source=feed&ptm_context=mp3&ptm_file=LdN491.mp3",
+      "audio": {
+        "clean": {
+          "file": "LdN491.clean.mp3",
+          "sha256": "70abc1e97255ab9ba24ca1cc081b547c94e3c4b07bc8068aac623b1b5e1b2a5b",
+          "duration": 5461.54,
+          "url": "https://dts.podtrac.com/redirect.mp3/files.lagedernation.org/lagedernation/LdN491.mp3?ptm_source=feed&ptm_context=mp3&ptm_file=LdN491.mp3",
+          "user_agent": "curl/7.88.1",
+          "duration_header": 5461.596
+        },
+        "podcatcher": {
+          "file": "LdN491.podcatcher.mp3",
+          "sha256": "10a2710e9d7d9b36540a203ad1c16a00acaf37b4f342189deb6097a0bec64d81",
+          "duration": 5643.7,
+          "url": "https://dts.podtrac.com/redirect.mp3/files.lagedernation.org/lagedernation/LdN491.mp3?ptm_source=feed&ptm_context=mp3&ptm_file=LdN491.mp3",
+          "user_agent": "AntennaPod/3.5.0",
+          "duration_header": 5643.756
+        }
+      },
+      "transcripts": {
+        "official": {
+          "file": "LdN491.official.vtt",
+          "sha256": "76455b1f645dfae5c07ddb120ef42f43d1bcfbb86ac16d1fc87d476db43ca3f4",
+          "url": "https://files.lagedernation.org/lagedernation/LdN491.vtt",
+          "aligned_to": "clean",
+          "kind": "publisher_asr_multitrack",
+          "note": "Per-speaker '<v Track n>' ASR of the clean master; not human-proofread (silver)."
+        }
+      },
+      "dai": {
+        "clean": "clean",
+        "stitched": "podcatcher",
+        "file": "dai/ldn491.json"
+      },
+      "label": "labels/ldn491.podcatcher.label.json",
+      "windows": [
+        {
+          "id": "wer1",
+          "variant": "clean",
+          "start": 599.93,
+          "duration": 120.0,
+          "purpose": "wer"
+        },
+        {
+          "id": "wer2",
+          "variant": "clean",
+          "start": 2701.536,
+          "duration": 120.0,
+          "purpose": "wer"
+        },
+        {
+          "id": "wer3",
+          "variant": "clean",
+          "start": 4798.796,
+          "duration": 120.0,
+          "purpose": "wer"
+        }
+      ],
+      "notes": "Latest regular episode at pin time. All advertising is server-inserted (4 regions, 182.16 s)."
+    },
+    "ldn490": {
+      "podcast": "Lage der Nation",
+      "language": "de",
+      "title": "LdN490 Pazifismus: Lässt sich Putin wirklich mit Gesang aus der Ukraine vertreiben? (Olaf L. Müller)",
+      "guid": "e9547248-270f-4752-8fe0-198a111f345a",
+      "feed_url": "https://feeds.lagedernation.org/feeds/ldn-mp3.xml",
+      "enclosure_url": "https://dts.podtrac.com/redirect.mp3/files.lagedernation.org/lagedernation/LdN490.mp3?ptm_source=feed&ptm_context=mp3&ptm_file=LdN490.mp3",
+      "audio": {
+        "clean": {
+          "file": "LdN490.fresh.mp3",
+          "sha256": "713c105e269a143cf6cbb265fde4403ac2a3f83d50a48fa356433c9738cb4444",
+          "duration": 4788.99,
+          "url": "https://dts.podtrac.com/redirect.mp3/files.lagedernation.org/lagedernation/LdN490.mp3?ptm_source=feed&ptm_context=mp3&ptm_file=LdN490.mp3",
+          "user_agent": "curl/7.88.1",
+          "duration_header": 4789.044
+        },
+        "podcatcher": {
+          "file": "LdN490.podcatcher.mp3",
+          "sha256": "17cff847875b61939f1c383bc957000236152d6a2ee59f0f857993304fa34646",
+          "duration": 4933.1,
+          "url": "https://dts.podtrac.com/redirect.mp3/files.lagedernation.org/lagedernation/LdN490.mp3?ptm_source=feed&ptm_context=mp3&ptm_file=LdN490.mp3",
+          "user_agent": "AntennaPod/3.5.0",
+          "duration_header": 4933.152
+        }
+      },
+      "transcripts": {
+        "official": {
+          "file": "LdN490.official.vtt",
+          "sha256": "dc2c1a9bed793a020b5bb39787f4ec235134047dc93b8f8c6705366b32a96e2d",
+          "url": "https://files.lagedernation.org/lagedernation/LdN490.vtt",
+          "aligned_to": "clean",
+          "kind": "publisher_asr_multitrack"
+        },
+        "whisper-small": {
+          "file": "LdN490.whisper-small.srt",
+          "sha256": "ff7226dc7549c39809daac19793b04ad59ba6679e11fe80d83c8a120a0e8d1c6",
+          "aligned_to": "clean",
+          "kind": "whisper.cpp small-q5_1 greedy, full episode, 2026-09-01"
+        }
+      },
+      "dai": {
+        "clean": "clean",
+        "stitched": "podcatcher",
+        "file": "dai/ldn490.json"
+      },
+      "label": "labels/ldn490.podcatcher.label.json",
+      "windows": [
+        {
+          "id": "wer1",
+          "variant": "clean",
+          "start": 301.653,
+          "duration": 120.0,
+          "purpose": "wer"
+        }
+      ],
+      "notes": "Summer-break interview episode; whole-episode whisper transcript of the clean file exists (WER baseline 9.5%)."
+    },
+    "solved-life-path": {
+      "podcast": "SOLVED with Mark Manson",
+      "language": "en",
+      "title": "Finding Your Life Path, Solved",
+      "guid": "flightcast:01M12FWPTRS9YZ9YNQSKT4592W",
+      "feed_url": "https://rss.pdrl.fm/6e7d4d/feeds.megaphone.fm/ISML9402684841",
+      "enclosure_url": "https://claritaspod.com/measure/pscrb.fm/rss/p/mgln.ai/e/441/episode.flightcast.com/01M12FWPTREG04W39GVR9SDKQE.mp3",
+      "audio": {
+        "clean": {
+          "file": "solved-finding-your-life-path.mp3",
+          "sha256": "2aaa7f9db20b828371455f5acf84f11bccfcea23bfa9a4138e5359292db8c084",
+          "duration": 15020.59,
+          "url": "https://claritaspod.com/measure/pscrb.fm/rss/p/mgln.ai/e/441/episode.flightcast.com/01M12FWPTREG04W39GVR9SDKQE.mp3",
+          "user_agent": "curl/7.88.1",
+          "duration_header": 15043.109
+        },
+        "podcatcher": {
+          "file": "solved-finding-your-life-path.podcatcher.mp3",
+          "sha256": "06d7a47fe1dbb7ce796446fbb31f2debcfae66f73ff1143fc3efe4d151909a5a",
+          "duration": 15195.03,
+          "url": "https://claritaspod.com/measure/pscrb.fm/rss/p/mgln.ai/e/441/episode.flightcast.com/01M12FWPTREG04W39GVR9SDKQE.mp3",
+          "user_agent": "AntennaPod/3.5.0",
+          "duration_header": 15217.554
+        }
+      },
+      "transcripts": {
+        "official": {
+          "file": "solved-finding-your-life-path.official.vtt",
+          "sha256": "ee8f837c28ff02c9d32ec01f38251db8778a7e692779ab846d8545ff2e4a4c29",
+          "url": "https://rss.flightcast.com/transcripts/01M12FWPTREG04W39GVR9SDKQE.vtt",
+          "aligned_to": "clean",
+          "kind": "publisher_asr_captions",
+          "note": "Flightcast captions of the clean master; includes the host-read ads; not human-proofread (silver)."
+        }
+      },
+      "dai": {
+        "clean": "clean",
+        "stitched": "podcatcher",
+        "file": "dai/solved-life-path.json"
+      },
+      "label": "labels/solved-life-path.podcatcher.label.json",
+      "windows": [
+        {
+          "id": "wer1",
+          "variant": "clean",
+          "start": 903.494,
+          "duration": 120.0,
+          "purpose": "wer"
+        },
+        {
+          "id": "wer2",
+          "variant": "clean",
+          "start": 7499.648,
+          "duration": 120.0,
+          "purpose": "wer"
+        },
+        {
+          "id": "wer3",
+          "variant": "clean",
+          "start": 13998.815,
+          "duration": 120.0,
+          "purpose": "wer"
+        },
+        {
+          "id": "ad-notion",
+          "variant": "podcatcher",
+          "start": 670.0,
+          "duration": 120.0,
+          "purpose": "anchor",
+          "note": "covers the Notion read start and the AG1 hand-over in the stitched timeline"
+        }
+      ],
+      "notes": "4 h 10 min episode: 7 baked-in host reads plus 3 server-inserted regions (pre-roll 56.7 s, mid-roll 89.1 s, post-roll 28.6 s)."
+    },
+    "hot-oh-canada": {
+      "podcast": "Hacks On Tap",
+      "language": "en",
+      "title": "Oh Canada! (With Jonathan Martin)",
+      "guid": "d25942ec-d60e-11f0-a305-d75fbc6ff430",
+      "feed_url": "https://feeds.megaphone.fm/VMP7545057845",
+      "enclosure_url": "https://www.podtrac.com/pts/redirect.mp3/pscrb.fm/rss/p/mgln.ai/e/257/traffic.megaphone.fm/VMP1993486109.mp3",
+      "audio": {
+        "podcatcher": {
+          "file": "hot-oh-canada.mp3",
+          "sha256": "55ea210e5c4adf0372dd760a91777cfb7e359b6fff3e32e4ad5c05f40ef4e313",
+          "duration": 4388.25,
+          "url": null,
+          "user_agent": null,
+          "note": "Downloaded 2026-08-31 (whisper-transcribe repo, /opt/whisper/in/hacks-on-tap-oh-canada.mp3). Megaphone serves different ad loads per request, so this exact file cannot be re-fetched.",
+          "duration_header": 4388.258
+        }
+      },
+      "transcripts": {
+        "whisper-small": {
+          "file": "hot-oh-canada.whisper-small.srt",
+          "sha256": "a102853c6c3a6475577d974ea673a0cc6004460463e27ed15154c7d5ff8af49d",
+          "aligned_to": "podcatcher",
+          "kind": "whisper.cpp small-q5_1 greedy, full episode, 2026-08-31"
+        }
+      },
+      "dai": null,
+      "label": "labels/hot-oh-canada.podcatcher.label.json",
+      "windows": [
+        {
+          "id": "ad-midroll",
+          "variant": "podcatcher",
+          "start": 960.0,
+          "duration": 200.0,
+          "purpose": "anchor",
+          "note": "Ground News and Pebble reads, Monday Music Club promo"
+        },
+        {
+          "id": "ad-promos",
+          "variant": "podcatcher",
+          "start": 2420.0,
+          "duration": 100.0,
+          "purpose": "anchor",
+          "note": "Net Worth and Chill / Vergecast promos"
+        },
+        {
+          "id": "drift",
+          "variant": "podcatcher",
+          "start": 1500.0,
+          "duration": 120.0,
+          "purpose": "drift",
+          "note": "editorial; compared against the cached whole-episode whisper transcript"
+        }
+      ],
+      "notes": "No publisher transcript and no clean master; ground truth is the repo owner's cue-level annotation of the whisper transcript."
+    }
+  }
+}

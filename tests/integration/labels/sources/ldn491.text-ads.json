@@ -1,0 +1,8 @@
+{
+  "_comment": "Text-derived judgement calls for LdN491 (clean timeline, cue indices of LdN491.official.vtt). Drafted by Claude (Fable 5.1) on 2026-09-06 from the transcript text. The build maps these into the podcatcher file's timeline via the DAI offset map.",
+  "transcript": "LdN491.official.vtt",
+  "segments": [
+    {"start_cue": 1278, "end_cue": 1287, "category": "cross_promo", "ambiguous": true,
+     "note": "hosts recommend 'The Rest is Politics' after it featured their interview; a spontaneous editorial recommendation of another show, so cutting or keeping it is a judgement call"}
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "_comment": "Text-derived candidate segments for 'Finding Your Life Path, Solved', located by reading the publisher transcript (clean timeline, cue indices of solved-finding-your-life-path.official.vtt). Drafted by Claude (Fable 5.1) on 2026-09-06 from the transcript text only; nobody has listened yet. The label build maps these into the podcatcher file's timeline via the DAI offset map.",
+  "transcript": "solved-finding-your-life-path.official.vtt",
+  "segments": [
+    {"start_cue": 134, "end_cue": 134, "category": "other", "ambiguous": true, "note": "hand-off into the first break ('a quick word from the people who keep the lights on'); framing line, judgement call"},
+    {"start_cue": 135, "end_cue": 158, "category": "sponsor_read", "note": "Notion, host read, manson.deals/notion"},
+    {"start_cue": 159, "end_cue": 173, "category": "sponsor_read", "note": "AG1, host read, manson.deals/ag1"},
+    {"start_cue": 174, "end_cue": 175, "category": "other", "ambiguous": true, "note": "return phrase 'Welcome back to The Solve Podcast. Let's get back into it.'"},
+    {"start_cue": 967, "end_cue": 967, "category": "other", "ambiguous": true, "note": "hand-off 'But real quick, a word from our sponsors.'"},
+    {"start_cue": 968, "end_cue": 1005, "category": "sponsor_read", "note": "Brain.fm, host read, manson.deals/brain.fm"},
+    {"start_cue": 1006, "end_cue": 1022, "category": "sponsor_read", "note": "Surfshark, host read, surfshark.com/solvedpod"},
+    {"start_cue": 1023, "end_cue": 1024, "category": "other", "ambiguous": true, "note": "return phrase 'All right. Welcome back.'"},
+    {"start_cue": 2046, "end_cue": 2046, "category": "other", "ambiguous": true, "note": "hand-off 'But first, a quick message from our sponsors.'"},
+    {"start_cue": 2047, "end_cue": 2066, "category": "sponsor_read", "note": "Momentus, host read, code SOLVE"},
+    {"start_cue": 2067, "end_cue": 2086, "category": "sponsor_read", "note": "Shopify, host read, manson.deals/shopify"},
+    {"start_cue": 2087, "end_cue": 2088, "category": "other", "ambiguous": true, "note": "return phrase 'Welcome back to the Solve Podcast. Let's get back into it.'"},
+    {"start_cue": 2995, "end_cue": 2995, "category": "other", "ambiguous": true, "note": "hand-off 'But real quick, a word from our sponsors.'"},
+    {"start_cue": 2996, "end_cue": 3010, "category": "self_promo", "ambiguous": true, "note": "Purpose, the host's own app (manson.deals/purpose): own product or sponsor read is a judgement call"},
+    {"start_cue": 3011, "end_cue": 3033, "category": "sponsor_read", "note": "Waking Up, host read, manson.deals/wakingup"},
+    {"start_cue": 3034, "end_cue": 3035, "category": "other", "ambiguous": true, "note": "return phrase 'Welcome back to the Solve podcast. Let's get back into it.'"},
+    {"start_cue": 3823, "end_cue": 3828, "category": "self_promo", "note": "outro: free PDF guide at solvepodcast.com/commitment, follow/subscribe/review"}
+  ]
+}

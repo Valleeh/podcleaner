@@ -1,0 +1,7 @@
+{
+  "_comment": "Additional judgement-call segments for the Hacks on Tap 'Oh Canada' file, cue-aligned to hot-oh-canada.whisper-small.srt. Added 2026-09-06 (Claude, from the transcript text): the show's own opening announcement and theme music. The original annotation treats the closing credits as ambiguous; the opening boilerplate is the same kind of thing, so cutting or keeping it is not scored.",
+  "segments": [
+    {"start_cue": 38, "end_cue": 41, "category": "credits", "ambiguous": true,
+     "note": "opening announcement ('Hey, pull up a chair. It's Hacks on Tap with ... from the Vox Media Podcast Network') and theme music; the hosts' first line follows at cue 42"}
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "schema_version": 3,
+  "episode": {
+    "id": "ldn490",
+    "podcast": "Lage der Nation",
+    "title": "LdN490 Pazifismus: Lässt sich Putin wirklich mit Gesang aus der Ukraine vertreiben? (Olaf L. Müller)",
+    "guid": "e9547248-270f-4752-8fe0-198a111f345a",
+    "feed_url": "https://feeds.lagedernation.org/feeds/ldn-mp3.xml",
+    "enclosure_url": "https://dts.podtrac.com/redirect.mp3/files.lagedernation.org/lagedernation/LdN490.mp3?ptm_source=feed&ptm_context=mp3&ptm_file=LdN490.mp3",
+    "audio_file": "LdN490.podcatcher.mp3",
+    "sha256": "17cff847875b61939f1c383bc957000236152d6a2ee59f0f857993304fa34646",
+    "duration_seconds": 4933.1,
+    "variant": "podcatcher",
+    "user_agent": "AntennaPod/3.5.0"
+  },
+  "transcript": null,
+  "provenance": {
+    "method": "construction",
+    "drafted_by": "Claude (Fable 5.1), 2026-09-06, from transcript text and the DAI oracle; no listening",
+    "notes": "Inserted regions are exact splice points from podcleaner.eval.dai (clean vs podcatcher download). The publisher transcript of the clean master contains no advertising, so these regions are expected to be the complete set; a human pass confirms that.",
+    "all_segments_verified": true
+  },
+  "labeler": null,
+  "labeled_at": "2026-09-06T08:58:03+00:00",
+  "status": "in_progress",
+  "label_convention": "break_including_pause",
+  "notes": null,
+  "ads": [
+    {
+      "start": 135.468,
+      "end": 173.52,
+      "category": "sponsor_read",
+      "inserted": true,
+      "ambiguous": false,
+      "source": "construction",
+      "verified": true,
+      "first_line": "Werbung.",
+      "last_line": "Details auf wattenfall.de/ratenzahlung",
+      "note": "server-inserted; splice frames 3763-4820"
+    },
+    {
+      "start": 1969.524,
+      "end": 2009.484,
+      "category": "sponsor_read",
+      "inserted": true,
+      "ambiguous": false,
+      "source": "construction",
+      "verified": true,
+      "first_line": "Verbrenntenreform, Energiepreise, Schuldenbremse. Kompliziert genug, eure Autover sicherung muss",
+      "last_line": "Geht jetzt auf vkb.de für mehr Infos.",
+      "note": "server-inserted; splice frames 54709-55819"
+    },
+    {
+      "start": 4831.56,
+      "end": 4897.656,
+      "category": "self_promo",
+      "inserted": true,
+      "ambiguous": true,
+      "source": "construction",
+      "verified": true,
+      "first_line": "Hallo zusammen, die Lage geht wieder auf Tour.",
+      "last_line": "wenn ihr wollt, am 28.10. in Düsseldorf und am 30.10. in München.",
+      "note": "server-inserted house promo (same 'Lage auf Tour' spot as in LdN491); don't-care region. (server-inserted; splice frames 134210-136046)"
+    }
+  ]
+}
