@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "podcleaner"
+version = "2.0.0a0"
+description = "PodClean v2: serves ad-free copies of podcast episodes on demand"
+requires-python = ">=3.11"
+dependencies = [
+    "structlog>=24.1",
+    "openai>=1.12",
+    "requests>=2.31",
+    "feedparser>=6.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8",
+    "hypothesis>=6",
+    "jiwer>=3",
+]
+
+[tool.setuptools.packages.find]
+include = ["podcleaner*"]
+exclude = ["old*", "tests*", "var*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: needs real audio under var/fixtures, Docker and/or an LLM API key; enable with --integration",
+    "whisper: runs whisper.cpp (minutes per test on this host)",
+    "llm: calls a paid LLM API",
+    "full: whole-episode work (hours); enable with --full",
+    "network: downloads something; enable with --download",
+]
