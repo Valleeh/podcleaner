@@ -1,0 +1,128 @@
+{
+  "_comment": "Measured on the pinned fixtures; regression gates are derived from these values. Re-record with: pytest --integration --record-baselines",
+  "metrics": {
+    "ads:hot-oh-canada:whisper": {
+      "model": "cascade:qwen/qwen3.7-flash>deepseek/deepseek-v4-flash",
+      "cost_usd": 0.00172804228,
+      "combined_score": 0.0,
+      "recall": 1.0,
+      "coverable_recall": 1.0,
+      "false_cut_seconds": 0.0,
+      "recorded": "2026-09-06T09:03:45+00:00"
+    },
+    "ads:ldn490:hybrid": {
+      "model": "cascade:qwen/qwen3.7-flash>deepseek/deepseek-v4-flash",
+      "cost_usd": 0.0018148342399999999,
+      "combined_score": 8.971999999999866,
+      "recall": 0.8849920525047447,
+      "coverable_recall": 1.0,
+      "false_cut_seconds": 0.0,
+      "recorded": "2026-09-06T09:03:45+00:00"
+    },
+    "ads:ldn490:whisper-clean-negative": {
+      "cut_seconds": 0,
+      "recorded": "2026-09-06T09:03:45+00:00"
+    },
+    "ads:ldn491:hybrid": {
+      "model": "cascade:qwen/qwen3.7-flash>deepseek/deepseek-v4-flash",
+      "cost_usd": 0.00228698028,
+      "combined_score": 16.023999999999745,
+      "recall": 0.8619382409705009,
+      "coverable_recall": 1.0,
+      "false_cut_seconds": 0.0,
+      "recorded": "2026-09-06T09:03:44+00:00"
+    },
+    "ads:solved-life-path:hybrid": {
+      "model": "cascade:qwen/qwen3.7-flash>deepseek/deepseek-v4-flash",
+      "cost_usd": 0.00532244632,
+      "combined_score": 11.036000000007753,
+      "recall": 0.9945487912234975,
+      "coverable_recall": 0.9959941675078915,
+      "false_cut_seconds": 2.2400000000010323,
+      "recorded": "2026-09-06T09:03:45+00:00"
+    },
+    "anchor:hot-oh-canada:ad-midroll": {
+      "worst_delta": 1.2000000000000455,
+      "misses": 0,
+      "recorded": "2026-09-06T00:05:13+00:00"
+    },
+    "anchor:hot-oh-canada:ad-promos": {
+      "worst_delta": 0.20000000000027285,
+      "misses": 0,
+      "recorded": "2026-09-06T00:05:13+00:00"
+    },
+    "anchor:solved-life-path:ad-notion": {
+      "worst_delta": 0.04800000000000182,
+      "misses": 0,
+      "recorded": "2026-09-06T00:05:13+00:00"
+    },
+    "drift:hot-oh-canada:drift": {
+      "inner_wer": 0.042704626334519574,
+      "raw_wer": 0.05379746835443038,
+      "recorded": "2026-09-06T00:05:14+00:00"
+    },
+    "timing:ldn490:wer1": {
+      "p90": 0.17799999999999727,
+      "found_fraction": 0.7575757575757576,
+      "recorded": "2026-09-06T00:05:11+00:00"
+    },
+    "timing:ldn491:wer1": {
+      "p90": 0.7049999999999272,
+      "found_fraction": 0.896551724137931,
+      "recorded": "2026-09-06T00:05:10+00:00"
+    },
+    "timing:ldn491:wer2": {
+      "p90": 0.4899999999997817,
+      "found_fraction": 0.7741935483870968,
+      "recorded": "2026-09-06T00:05:10+00:00"
+    },
+    "timing:ldn491:wer3": {
+      "p90": 0.5969999999997526,
+      "found_fraction": 0.8666666666666667,
+      "recorded": "2026-09-06T00:05:10+00:00"
+    },
+    "timing:solved-life-path:wer1": {
+      "p90": 0.28099999999994907,
+      "found_fraction": 0.8,
+      "recorded": "2026-09-06T00:05:11+00:00"
+    },
+    "timing:solved-life-path:wer2": {
+      "p90": 0.5340000000005602,
+      "found_fraction": 0.85,
+      "recorded": "2026-09-06T00:05:11+00:00"
+    },
+    "timing:solved-life-path:wer3": {
+      "p90": 0.36899999999877764,
+      "found_fraction": 0.782608695652174,
+      "recorded": "2026-09-06T00:05:11+00:00"
+    },
+    "wer:ldn490:wer1": {
+      "wer": 0.13527851458885942,
+      "recorded": "2026-09-06T00:05:09+00:00"
+    },
+    "wer:ldn491:wer1": {
+      "wer": 0.0453257790368272,
+      "recorded": "2026-09-06T00:05:09+00:00"
+    },
+    "wer:ldn491:wer2": {
+      "wer": 0.15013404825737264,
+      "recorded": "2026-09-06T00:05:09+00:00"
+    },
+    "wer:ldn491:wer3": {
+      "wer": 0.09763313609467456,
+      "recorded": "2026-09-06T00:05:09+00:00"
+    },
+    "wer:solved-life-path:wer1": {
+      "wer": 0.10140845070422536,
+      "recorded": "2026-09-06T00:05:10+00:00"
+    },
+    "wer:solved-life-path:wer2": {
+      "wer": 0.08854166666666667,
+      "recorded": "2026-09-06T00:05:10+00:00"
+    },
+    "wer:solved-life-path:wer3": {
+      "wer": 0.030660377358490566,
+      "recorded": "2026-09-06T00:05:10+00:00"
+    }
+  }
+}

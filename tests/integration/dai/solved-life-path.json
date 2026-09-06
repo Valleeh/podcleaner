@@ -1,0 +1,50 @@
+{
+  "schema": "podcleaner.dai/1",
+  "clean_path": "var/fixtures/audio/solved-finding-your-life-path.mp3",
+  "stitched_path": "var/fixtures/audio/solved-finding-your-life-path.podcatcher.mp3",
+  "clean_duration": 15020.591,
+  "stitched_duration": 15194.932,
+  "duration_delta": 174.341,
+  "total_inserted": 174.393,
+  "skipped_clean_seconds": 0.052,
+  "reconciled_inserted": 174.341,
+  "clean_frames": 575007,
+  "stitched_frames": 581681,
+  "matched_frames": 575005,
+  "modified_frames": 0,
+  "regions": [
+    {
+      "start": 0.0,
+      "end": 56.686,
+      "duration": 56.686,
+      "start_frame": 0,
+      "end_frame": 2170,
+      "byte_start": 314,
+      "byte_end": 680542,
+      "skipped_clean_frames": 0,
+      "skipped_clean_seconds": 0
+    },
+    {
+      "start": 2290.913,
+      "end": 2379.99,
+      "duration": 89.078,
+      "start_frame": 87699,
+      "end_frame": 91109,
+      "byte_start": 27491809,
+      "byte_end": 28561450,
+      "skipped_clean_frames": 2,
+      "skipped_clean_seconds": 0.052
+    },
+    {
+      "start": 15166.302,
+      "end": 15194.932,
+      "duration": 28.63,
+      "start_frame": 580585,
+      "end_frame": 581681,
+      "byte_start": 181997192,
+      "byte_end": 182340754,
+      "skipped_clean_frames": 0,
+      "skipped_clean_seconds": 0.0
+    }
+  ]
+}

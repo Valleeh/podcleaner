@@ -1,0 +1,50 @@
+{
+  "schema": "podcleaner.dai/1",
+  "clean_path": "var/fixtures/audio/LdN490.fresh.mp3",
+  "stitched_path": "var/fixtures/audio/LdN490.podcatcher.mp3",
+  "clean_duration": 4789.044,
+  "stitched_duration": 4933.152,
+  "duration_delta": 144.108,
+  "total_inserted": 144.108,
+  "skipped_clean_seconds": 0,
+  "reconciled_inserted": 144.108,
+  "clean_frames": 133029,
+  "stitched_frames": 137032,
+  "matched_frames": 133029,
+  "modified_frames": 0,
+  "regions": [
+    {
+      "start": 135.468,
+      "end": 173.52,
+      "duration": 38.052,
+      "start_frame": 3763,
+      "end_frame": 4820,
+      "byte_start": 1626092,
+      "byte_end": 2082716,
+      "skipped_clean_frames": 0,
+      "skipped_clean_seconds": 0
+    },
+    {
+      "start": 1969.524,
+      "end": 2009.484,
+      "duration": 39.96,
+      "start_frame": 54709,
+      "end_frame": 55819,
+      "byte_start": 23634764,
+      "byte_end": 24114284,
+      "skipped_clean_frames": 0,
+      "skipped_clean_seconds": 0
+    },
+    {
+      "start": 4831.56,
+      "end": 4897.656,
+      "duration": 66.096,
+      "start_frame": 134210,
+      "end_frame": 136046,
+      "byte_start": 57979196,
+      "byte_end": 58772348,
+      "skipped_clean_frames": 0,
+      "skipped_clean_seconds": 0
+    }
+  ]
+}

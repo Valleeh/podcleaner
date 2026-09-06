@@ -1,0 +1,184 @@
+{
+  "episode": "Hacks on Tap - Oh Canada",
+  "transcript": "results/oh-canada-small.srt",
+  "transcript_model": "whisper.cpp ggml-small-q5_1, greedy",
+  "cue_count": 1286,
+  "duration": 4386.92,
+  "annotator": "hand-annotated by reading all cues; method in docs/ad-analyzer.md",
+  "method": "Every cue was read. A segment starts at the first cue whose spoken words belong to the promo and ends at the last such cue. Cues marked ambiguous are judgement calls and are excluded from strict scoring.",
+  "segments": [
+    {
+      "start_cue": 1,
+      "end_cue": 12,
+      "start": 0.0,
+      "end": 29.28,
+      "start_timestamp": "00:00:00.000",
+      "end_timestamp": "00:00:29.280",
+      "duration": 29.28,
+      "category": "cross_promo",
+      "note": "Ina Garten / Happy Hour with Ina",
+      "ambiguous": false,
+      "first_line": "[MUSIC]",
+      "last_line": "[MUSIC]"
+    },
+    {
+      "start_cue": 13,
+      "end_cue": 23,
+      "start": 31.0,
+      "end": 57.92,
+      "start_timestamp": "00:00:31.000",
+      "end_timestamp": "00:00:57.920",
+      "duration": 26.92,
+      "category": "cross_promo",
+      "note": "Megan Rapinoe / Why Are You Like This",
+      "ambiguous": false,
+      "first_line": "Megan Rapino here.",
+      "last_line": "[MUSIC]"
+    },
+    {
+      "start_cue": 24,
+      "end_cue": 37,
+      "start": 57.92,
+      "end": 99.16,
+      "start_timestamp": "00:00:57.920",
+      "end_timestamp": "00:01:39.160",
+      "duration": 41.24,
+      "category": "cross_promo",
+      "note": "Kara Swisher / Pivot",
+      "ambiguous": false,
+      "first_line": "Hi, it's Kara Swisher.",
+      "last_line": "[MUSIC]"
+    },
+    {
+      "start_cue": 315,
+      "end_cue": 337,
+      "start": 974.52,
+      "end": 1071.2,
+      "start_timestamp": "00:16:14.520",
+      "end_timestamp": "00:17:51.200",
+      "duration": 96.68,
+      "category": "sponsor_read",
+      "note": "Ground News, with promo code",
+      "ambiguous": false,
+      "first_line": "Support for the show comes from Ground News.",
+      "last_line": "Use groundnews.com/hack so they know we sent you."
+    },
+    {
+      "start_cue": 338,
+      "end_cue": 363,
+      "start": 1071.2,
+      "end": 1149.96,
+      "start_timestamp": "00:17:51.200",
+      "end_timestamp": "00:19:09.960",
+      "duration": 78.76,
+      "category": "sponsor_read",
+      "note": "Pebble, with promo link",
+      "ambiguous": false,
+      "first_line": "Support for the show comes from Pebble.",
+      "last_line": "That's highpebl.ai, terms and conditions apply."
+    },
+    {
+      "start_cue": 364,
+      "end_cue": 379,
+      "start": 1149.96,
+      "end": 1207.32,
+      "start_timestamp": "00:19:09.960",
+      "end_timestamp": "00:20:07.320",
+      "duration": 57.36,
+      "category": "cross_promo",
+      "note": "The Monday Music Club",
+      "ambiguous": false,
+      "first_line": "Have you ever wondered who invented rock and roll or why Fleetwood Mac fell apart or what",
+      "last_line": "[MUSIC]"
+    },
+    {
+      "start_cue": 760,
+      "end_cue": 769,
+      "start": 2435.92,
+      "end": 2476.4,
+      "start_timestamp": "00:40:35.920",
+      "end_timestamp": "00:41:16.400",
+      "duration": 40.48,
+      "category": "cross_promo",
+      "note": "Net Worth and Chill",
+      "ambiguous": false,
+      "first_line": "Are you stuck in a job working hard, but feel like no matter what you do, you just can't",
+      "last_line": "Listen wherever you get your podcasts or watch on YouTube.com/yourrichbff."
+    },
+    {
+      "start_cue": 770,
+      "end_cue": 775,
+      "start": 2476.4,
+      "end": 2510.76,
+      "start_timestamp": "00:41:16.400",
+      "end_timestamp": "00:41:50.760",
+      "duration": 34.36,
+      "category": "cross_promo",
+      "note": "The Vergecast",
+      "ambiguous": false,
+      "first_line": "Apple dropped some new upgraded computers this week, like a new Mac Studio for AI stuff,",
+      "last_line": "That's this week on The Vergecast, wherever you get your podcasts."
+    },
+    {
+      "start_cue": 819,
+      "end_cue": 822,
+      "start": 2675.44,
+      "end": 2689.28,
+      "start_timestamp": "00:44:35.440",
+      "end_timestamp": "00:44:49.280",
+      "duration": 13.84,
+      "category": "self_promo",
+      "note": "Guest plugs his own show 'On the Road' mid-conversation",
+      "ambiguous": true,
+      "first_line": "Hey, guys, a real fast plug for my show.",
+      "last_line": "the next guy to go fight."
+    },
+    {
+      "start_cue": 1282,
+      "end_cue": 1286,
+      "start": 4353.0,
+      "end": 4386.92,
+      "start_timestamp": "01:12:33.000",
+      "end_timestamp": "01:13:06.920",
+      "duration": 33.92,
+      "category": "credits",
+      "note": "Production credits and Vox Media boilerplate",
+      "ambiguous": true,
+      "first_line": "of politics and this is your home for it. Thanks for listening. Hacks on Tap is part of the Vox",
+      "last_line": "visit podcast.VoxMedia.com."
+    }
+  ],
+  "non_speech": [
+    {
+      "start": 0.0,
+      "end": 1.56,
+      "cue": 1,
+      "text": "[MUSIC]"
+    },
+    {
+      "start": 23.28,
+      "end": 29.28,
+      "cue": 12,
+      "text": "[MUSIC]"
+    },
+    {
+      "start": 54.68,
+      "end": 57.92,
+      "cue": 23,
+      "text": "[MUSIC]"
+    },
+    {
+      "start": 89.16,
+      "end": 99.16,
+      "cue": 37,
+      "text": "[MUSIC]"
+    },
+    {
+      "start": 1197.32,
+      "end": 1207.32,
+      "cue": 379,
+      "text": "[MUSIC]"
+    }
+  ],
+  "non_speech_note": "Cues inside ad segments containing no speech. The scorer reports recall with and without these, so a model that ends a cut at the last spoken word is not penalised as if it had left advertising in."
+}
