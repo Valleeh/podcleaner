@@ -68,4 +68,4 @@ the work. `master` is the trunk and every step lands there through a pull reques
 A step is not done until its box in `docs/mvp.md` is ticked and its PR is merged. Do not
 start the next step before that.
 
-`gh` needs `gh auth login` on this host; pushing over SSH already works.
+`gh` is authenticated on this host (as `Valleeh`) and pushing over SSH works.
