@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# PodClean commands. There is no make on this host; this is the command surface.
+set -euo pipefail
+cd "$(dirname "$0")"
+PY=.venv/bin/python
+
+guard() {  # refuse to run if anything under var/ ever reaches the index
+  if git status --porcelain 2>/dev/null | grep -q '^[MARC]. *var/'; then
+    echo "STOP: var/ is staged. git restore --staged var/" >&2; exit 1
+  fi
+}
+
+case "${1:-help}" in
+  test)     guard; $PY -m pytest tests/unit -q ;;
+  ads)      $PY -m pytest --integration --provisional-labels tests/integration/test_ad_detection.py ;;
+  whisper)  $PY -m pytest --integration tests/integration/test_transcription.py ;;
+  full)     $PY -m pytest --integration --full tests/integration/test_transcription.py ;;
+  compare)  shift; $PY tests/integration/compare_models.py "$@" ;;
+  record)   $PY -m pytest --integration --record-baselines ;;
+  labels)   shift; $PY -m podcleaner.eval.labels "$@" ;;
+  serve)    shift; $PY -m podcleaner.server "$@" ;;
+  save)     guard; $PY -m pytest tests/unit -q && git add -A && git status --short ;;
+  *)        echo "usage:"; sed -n 's/^  \([a-z]*\)).*/  .\/run \1/p' "$0" ;;
+esac
