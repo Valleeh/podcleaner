@@ -18,7 +18,7 @@ in the MVP.
 
 There is no `python` and no `make` on this host. Use `./run`.
 
-    ./run test       # 92 offline unit tests, under a second
+    ./run test       # 166 offline unit tests, under two seconds
     ./run ads        # LLM suite, costs money
     ./run whisper    # whisper suite, minutes to hours
     ./run labels …   # label CLI: checklist / verify / finish
@@ -68,4 +68,4 @@ the work. `master` is the trunk and every step lands there through a pull reques
 A step is not done until its box in `docs/mvp.md` is ticked and its PR is merged. Do not
 start the next step before that.
 
-`gh` needs `gh auth login` on this host; pushing over SSH already works.
+`gh` is authenticated on this host (as `Valleeh`) and pushing over SSH works.
