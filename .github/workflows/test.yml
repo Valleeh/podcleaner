@@ -1,0 +1,70 @@
+# The suite, on every pull request and on master.
+#
+# It runs the same command the host runs -- `./run test` -- so there is one command
+# surface and no second description of how the tests start that can drift from it.
+#
+# The whole suite runs here, all eighteen: the episode is built at the start of the run
+# rather than downloaded, so there is no fixture a runner can be missing.
+#
+# Two images, because there are two different things in this repository. `./run build`
+# makes the one the server runs in; the server is Go and cuts by leaving MP3 frames out,
+# in process, so it needs no ffmpeg at all. The suite does: it encodes the episode it
+# plays and decodes what came back to measure it. That is the ruler, and it shares no code
+# with the thing it measures -- which is the whole reason the tests can say the file is
+# shorter without taking the server's word for it.
+#
+# Debian 12 for that ruler because that is the ffmpeg the host runs, 5.1.9, to the package
+# revision. The reason is no longer memory -- the cut that Alpine's ffmpeg 6 was OOM-killed
+# on was the old Python server's, and no ffmpeg cuts anything now. It is that CI must
+# measure what the host measures: a different build can lay the generated episode's frames
+# out differently, and then the suite is checking a file the host would never have made.
+#
+# Still only ever proven on the host: `./run verify`, which walks the audio a listener
+# gets against the publisher's own ad-free master. That needs the commercial episode and
+# always will.
+name: test
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+env:
+  # The suite's own ffmpeg, and only the suite's. It is not part of the contract a
+  # reimplementation has to meet -- that says nothing about how a server cuts.
+  PODCLEAN_TEST_FFMPEG_IMAGE: podclean-ffmpeg:ci
+
+jobs:
+  suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: build the ffmpeg the suite measures with
+        run: |
+          docker build -t "$PODCLEAN_TEST_FFMPEG_IMAGE" - <<'DOCKERFILE'
+          FROM debian:12-slim
+          RUN apt-get update \
+           && apt-get install -y --no-install-recommends ffmpeg \
+           && rm -rf /var/lib/apt/lists/*
+          DOCKERFILE
+
+      # ./run is the command surface and it expects the interpreter where the host keeps
+      # it, so CI puts one there rather than teaching the script a second layout.
+      - name: build the venv ./run expects
+        run: python -m venv .venv && .venv/bin/pip install -e ".[test]"
+
+      - name: build the image the server runs in
+        run: ./run build
+
+      # -rs prints why anything skipped. Nothing should: a skip here is a test that has
+      # quietly stopped running, and the log is where that has to be visible.
+      - name: ./run test
+        run: ./run test -rs
