@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# PodClean commands. There is no make on this host; this is the command surface.
+set -euo pipefail
+cd "$(dirname "$0")"
+PY=.venv/bin/python
+IMAGE=podclean
+
+guard() {  # refuse to run if anything under var/ ever reaches the index
+  if git status --porcelain 2>/dev/null | grep -q '^[MARC]. *var/'; then
+    echo "STOP: var/ is staged. git restore --staged var/" >&2; exit 1
+  fi
+}
+
+usage() {
+  cat <<'USAGE'
+usage:
+  ./run verify <feed> <guid>
+                          the acceptance measure: re-fetch what the listener gets, walk
+                          it against the publisher's own ad-free master, and report the
+                          advertising removed and whether any programme went with it.
+                          Host-only: it needs the commercial episode.
+  ./run health [feed]     is the deployed thing working: process, code==HEAD, public
+                          route, feed rewrite, last verdict.
+  ./run test              the suite: the routes end to end on an episode it builds
+                          itself. Needs Docker. No unit tests exist -- see CLAUDE.md.
+  ./run build             build the Docker image the server runs in
+  ./run serve             run the server, in Docker, on the host's network
+  ./run save              green suite, then stage everything
+
+An unknown command exits 2.  It must: a CI step that calls a command this script does
+not have has to fail, not print this text and succeed.
+USAGE
+}
+
+# The server runs in a container that shares the host's network and pid namespace, so it
+# listens on the host's ports, reaches the stub the suite runs on localhost, and can
+# notice when this process is killed (PODCLEANER_PARENT_PID). The store root is mounted
+# at its own path so paths mean the same on both sides.
+#
+# This is the development and single-host form. For an ordinary deployment see
+# compose.yaml, which needs none of --network host, --pid host or a bind mount.
+serve() {
+  export PODCLEANER_STORE_ROOT="${PODCLEANER_STORE_ROOT:-$PWD/var/episodes}"
+  mkdir -p "$PODCLEANER_STORE_ROOT"
+  if [ -z "${PODCLEANER_LLM_API_KEY:-}" ] && [ -f .secret.json ]; then
+    PODCLEANER_LLM_API_KEY=$($PY -c 'import json;print(json.load(open(".secret.json"))["openrouter-token"])')
+    export PODCLEANER_LLM_API_KEY
+  fi
+  exec docker run --rm -i --network host --pid host --user "$(id -u):$(id -g)" \
+    -e PODCLEANER_PARENT_PID=$$ \
+    $(env | grep '^PODCLEANER_' | sed 's/=.*//; s/^/-e /') \
+    -v "$PODCLEANER_STORE_ROOT:$PODCLEANER_STORE_ROOT" \
+    "$IMAGE" "$@"
+}
+
+case "${1:-help}" in
+  verify)   shift; $PY tools/verify.py "$@" ;;
+  health)   shift; $PY tools/health.py "$@" ;;
+  build)    docker build -t "$IMAGE" podclean ;;
+  test)     guard; shift; PODCLEAN_SERVER_CMD="$PWD/run serve" $PY -m pytest tests/integration -q "$@" ;;
+  serve)    shift; serve "$@" ;;
+  save)     guard; ./run test && git add -A && git status --short ;;
+  help|-h|--help) usage ;;
+  *)        echo "./run: unknown command '$1'" >&2; usage >&2; exit 2 ;;
+esac
