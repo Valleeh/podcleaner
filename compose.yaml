@@ -1,0 +1,28 @@
+# An ordinary deployment: one container, one volume, a reverse proxy in front of it.
+#
+#     cp .env.example .env    # and fill in the two that have no default
+#     docker compose up -d --build
+#
+# `./run serve` is the other way to start it -- the development one, which shares the
+# host's network and pid namespace so the suite can reach a stub on localhost. Neither is
+# needed here.
+services:
+  podclean:
+    build: ./podclean
+    image: podclean
+    restart: unless-stopped
+    ports:
+      - "${PODCLEANER_PORT:-8080}:8080"
+    environment:
+      # What it calls itself in the links it writes into a feed. This is the address a
+      # podcatcher will come back to days later, so it has to be the public one --
+      # not whatever host the request happened to arrive on.
+      PODCLEANER_BASE_URL: ${PODCLEANER_BASE_URL:?set it in .env}
+      # One bearer token for both paid endpoints.
+      PODCLEANER_LLM_API_KEY: ${PODCLEANER_LLM_API_KEY:?set it in .env}
+      PODCLEANER_LLM_SPEC: ${PODCLEANER_LLM_SPEC:-cascade:qwen/qwen3.7-flash>deepseek/deepseek-v4-flash}
+    volumes:
+      - episodes:/var/lib/podclean
+
+volumes:
+  episodes:
