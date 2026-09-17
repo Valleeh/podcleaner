@@ -26,5 +26,12 @@ ENV PODCLEANER_STORE_ROOT=/var/lib/podclean
 VOLUME ["/var/lib/podclean"]
 EXPOSE 8080
 
+# What this binary was built from, so that `./run health` can answer "is the running
+# server the checkout?" by comparing content rather than timestamps. A cached rebuild
+# keeps the image's creation time, so a clock can say a fresh image is stale and no
+# rebuild can ever clear it; a digest of the sources cannot.
+ARG SOURCE_DIGEST=unknown
+LABEL org.podclean.source=$SOURCE_DIGEST
+
 USER podclean
 ENTRYPOINT ["/usr/local/bin/podclean"]

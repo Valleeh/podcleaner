@@ -56,7 +56,8 @@ serve() {
 case "${1:-help}" in
   verify)   shift; $PY tools/verify.py "$@" ;;
   health)   shift; $PY tools/health.py "$@" ;;
-  build)    docker build -t "$IMAGE" podclean ;;
+  build)    docker build --build-arg SOURCE_DIGEST="$($PY tools/health.py --source-digest)" \
+                         -t "$IMAGE" podclean ;;
   test)     guard; shift; PODCLEAN_SERVER_CMD="$PWD/run serve" $PY -m pytest tests/integration -q "$@" ;;
   serve)    shift; serve "$@" ;;
   save)     guard; ./run test && git add -A && git status --short ;;

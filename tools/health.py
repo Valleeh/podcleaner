@@ -13,12 +13,11 @@ Exit code is the number of failing checks.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
-import re
 import subprocess
 import sys
-from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
@@ -52,54 +51,53 @@ def check_process() -> bool:
     return _say(True, "server process", f"pid {pid}")
 
 
-def _image_built_at() -> float | None:
-    """When the image the server runs was built, as a unix timestamp.
+def source_digest() -> str:
+    """A digest of the server's sources: what `./run build` stamps into the image.
 
-    Docker prints RFC 3339 with nanoseconds, which ``fromisoformat`` cannot read, and with
-    whatever zone the daemon feels like -- a ``Z`` or a ``+02:00``. Dropping the zone and
-    calling the rest UTC is how this check first reported a freshly built image as two
-    hours stale.
+    Defined once, here, and used by both sides -- `./run build` calls this file with
+    --source-digest rather than reimplementing it, because two definitions of one hash
+    disagree the first time anybody adds a file type.
     """
-    out = subprocess.run(["docker", "image", "inspect", "-f", "{{.Created}}", "podclean"],
-                         capture_output=True, text=True)
-    if out.returncode != 0:
-        return None
-    m = re.match(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?(Z|[+-]\d\d:\d\d)?$",
-                 out.stdout.strip())
-    if m is None:
-        return None
-    zone = m.group(3) or "+00:00"
-    return datetime.fromisoformat(
-        f"{m.group(1)}.{(m.group(2) or '0')[:6]}{'+00:00' if zone == 'Z' else zone}").timestamp()
+    h = hashlib.sha256()
+    for f in sorted((ROOT / "podclean").rglob("*")):
+        if f.is_file() and (f.suffix == ".go" or f.name == "go.mod"):
+            h.update(f"{hashlib.sha256(f.read_bytes()).hexdigest()}  "
+                     f"{f.relative_to(ROOT)}\n".encode())
+    return h.hexdigest()
+
+
+def _image_label() -> str | None:
+    out = subprocess.run(
+        ["docker", "image", "inspect", "-f", '{{index .Config.Labels "org.podclean.source"}}',
+         "podclean"], capture_output=True, text=True)
+    return out.stdout.strip() if out.returncode == 0 else None
 
 
 def check_code_is_current() -> bool:
     """A compiled server can be stale in two ways, and they need different fixes.
 
-    The source can be newer than the image, which means `./run build`; or the image can be
-    newer than the running process, which means a restart. Both have happened, and being
-    told the wrong one of the two costs a confused ten minutes.
+    The image can be built from sources that are no longer the checkout, which means
+    `./run build`; or the process can be running an older image than the one the tag now
+    points at, which means a restart. Both have happened, and being told the wrong one of
+    the two costs a confused ten minutes.
 
-    Start time comes from the mtime of /proc/<pid>, not from ``ps -o etimes``, which
-    reports 130 years on this host.
+    Both questions are asked about content, never about time. The first version of this
+    compared file mtimes against the image's creation date, and a cached rebuild keeps
+    that date -- so a `git checkout` that only touched mtimes put the check into a state
+    where the command it told you to run could not clear it.
     """
-    pid = _server_pid()
-    if pid is None:
-        return _say(False, "code is current", "no process to compare against")
-    built = _image_built_at()
-    if built is None:
+    label = _image_label()
+    if label is None:
         return _say(False, "code is current", "no `podclean` image -- ./run build")
-    newest, name = max((p.stat().st_mtime, str(p.relative_to(ROOT)))
-                       for p in (ROOT / "podclean").glob("**/*.go"))
-    if newest > built:
+    if label != source_digest():
         return _say(False, "code is current",
-                    f"{name} changed {(newest - built) / 60:.0f} min after the image was "
-                    f"built -- the binary is the old code, ./run build")
-    started = Path(f"/proc/{pid}").stat().st_mtime
-    if built > started:
+                    "the image was built from different sources than the checkout -- ./run build")
+    running = subprocess.run(["docker", "ps", "--filter", "ancestor=podclean", "--quiet"],
+                             capture_output=True, text=True).stdout.split()
+    if not running:
         return _say(False, "code is current",
-                    f"the image was rebuilt {(built - started) / 60:.0f} min after the "
-                    f"server started -- it is running the old binary, restart it")
+                    "the running container is from an older image than the `podclean` tag "
+                    "-- restart it")
     return _say(True, "code is current", "the image is built from the checkout and is what is running")
 
 
@@ -162,6 +160,9 @@ def check_last_verdict() -> bool:
 
 
 def main(argv) -> int:
+    if argv and argv[0] == "--source-digest":   # for `./run build`
+        print(source_digest())
+        return 0
     feed = argv[0].strip() if argv else None
     checks = [check_process(), check_code_is_current(), check_local(),
               check_public_route(), check_feed(feed), check_last_verdict()]
