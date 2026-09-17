@@ -85,8 +85,8 @@ break's first word to 1.5 s before its last, so the join always falls inside adv
 Finally the cut itself: whole MP3 frames left out, nothing re-encoded, nothing shelled out
 to.
 
-Ten small Go packages, one job each, and the one that decides what may be removed talks to
-nobody.
+Eleven small Go packages, one job each, and the one that decides what may be removed
+talks to nobody.
 
 ## Tests
 
