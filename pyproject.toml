@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "podcleaner"
+version = "2.0.0a0"
+description = "PodClean v2: serves ad-free copies of podcast episodes on demand"
+requires-python = ">=3.11"
+# The server is Go and has no dependencies at all beyond its standard library. What is
+# left here is the suite and the two host tools -- the things that measure the server from
+# outside -- and between them they want an HTTP client and a test runner.
+dependencies = ["requests>=2.31"]
+
+[project.optional-dependencies]
+# lxml is the suite's, not the server's: the feed tests parse what /rss returned with an
+# XML parser that shares no code with the one that wrote it, which is the only way "the
+# publisher's feed with links changed and nothing else" is a checkable claim.
+test = ["pytest>=8", "lxml>=5.0"]
+
+# There is no importable package any more: `tests` and `tools` are run in place, from the
+# repository root, and installing this project only puts their dependencies on the path.
+[tool.setuptools]
+packages = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests/integration"]
