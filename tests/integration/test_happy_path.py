@@ -7,11 +7,11 @@ the transcription API's reply, the model's reply -- and then what the listener g
 
 The episode is built for the run, in :mod:`tests.integration.episode`: 73 minutes at the
 timings of the real one this suite used to play, four breaks in it, silent.  The model's
-reply is written here, quoting each break's own first and last words, and what those
-quotes imply follows from `docs/spec.md`: a cut begins 1.5 s after the break's first word
-and ends 1.5 s before its last, so a break loses its length less two margins and the
-episode loses the four of them together.  The episode declares where the breaks are; the
-margin comes from the spec; nothing here asks the server what it meant to do.
+reply is written here, naming each break's cues and quoting its first words, and what
+that implies follows from `README.md`: a cut begins 1.5 s after the break's first word
+and ends 1.5 s before its last cue does, so a break loses that span less two margins and
+the episode loses the four of them together.  The episode declares where the breaks are;
+the margin comes from the README; nothing here asks the server what it meant to do.
 
 The only thing left real besides the server is ffmpeg, in Docker: "the file is shorter by
 exactly what was removed" is a claim about audio, and a faked cutter would make it a claim
@@ -25,16 +25,15 @@ import json
 import pytest
 import requests
 
-from tests.integration.episode import MARGIN_SECONDS, quote
+from tests.integration.episode import MARGIN_SECONDS, quote, removed
 from tests.integration.support import decode_seconds, model_reply, podclean_server
 
 def test_a_listener_subscribes_and_plays_one_episode(outside, tmp_path, episode, published):
-    # What those quotes imply: every break but a margin at each end, and every chapter
+    # What the reply implies: every break but a margin at each end, and every chapter
     # earlier by all of the advertising that used to run before it.
-    removed = sum(b.cut_seconds for b in episode.breaks)
-    removed_before = {mark.title: sum(b.cut_seconds for b in episode.breaks
-                                      if b.end <= mark.start)
-                      for mark in episode.chapters}
+    lost = removed(episode.breaks)
+    lost_before = {mark.title: removed(episode.breaks, before=mark.start)
+                   for mark in episode.chapters}
 
     wanted = published
     # Room to send the episode in one request, which is what a transcriber that will take
@@ -53,7 +52,7 @@ def test_a_listener_subscribes_and_plays_one_episode(outside, tmp_path, episode,
         played = requests.get(f"{podclean}/podcast", params=wanted).content
         (tmp_path / "played.mp3").write_bytes(played)
         assert decode_seconds(tmp_path / "played.mp3") == pytest.approx(
-            decode_seconds(episode.mp3) - removed, abs=1.0)
+            decode_seconds(episode.mp3) - lost, abs=1.0)
 
         # Play again: the same bytes, and nobody outside is asked anything a second time.
         hits_after_first_play = outside.counts()
@@ -90,7 +89,7 @@ def test_a_listener_subscribes_and_plays_one_episode(outside, tmp_path, episode,
         chapters = requests.get(f"{podclean}/chapters", params=wanted).json()["chapters"]
         assert [c["title"] for c in chapters] == [m.title for m in episode.chapters]
         assert [c["startTime"] for c in chapters] == pytest.approx(
-            [m.start - removed_before[m.title] for m in episode.chapters], abs=0.05)
+            [m.start - lost_before[m.title] for m in episode.chapters], abs=0.05)
         vtt = requests.get(f"{podclean}/transcript", params=wanted).text
         for brand in ("Northwind", "Cloudberry", "Tidewater", "Sandpiper"):
             assert brand not in vtt, f"the served transcript still reads out {brand}"
@@ -122,10 +121,9 @@ def test_an_episode_too_big_for_one_transcription_request_is_cut_all_the_same(
     outside.serves("/audio/transcriptions", "application/json", episode.transcriber(),
                    refuses_over=TRANSCRIBE_LIMIT)
 
-    removed = sum(b.cut_seconds for b in episode.breaks)
-    removed_before = {mark.title: sum(b.cut_seconds for b in episode.breaks
-                                      if b.end <= mark.start)
-                      for mark in episode.chapters}
+    lost = removed(episode.breaks)
+    lost_before = {mark.title: removed(episode.breaks, before=mark.start)
+                   for mark in episode.chapters}
 
     wanted = published
     with podclean_server(outside, tmp_path,
@@ -134,12 +132,12 @@ def test_an_episode_too_big_for_one_transcription_request_is_cut_all_the_same(
         played = requests.get(f"{podclean}/podcast", params=wanted).content
         (tmp_path / "played.mp3").write_bytes(played)
         assert decode_seconds(tmp_path / "played.mp3") == pytest.approx(
-            decode_seconds(episode.mp3) - removed, abs=1.0)
+            decode_seconds(episode.mp3) - lost, abs=1.0)
 
         chapters = requests.get(f"{podclean}/chapters", params=wanted).json()["chapters"]
         assert [c["title"] for c in chapters] == [m.title for m in episode.chapters]
         assert [c["startTime"] for c in chapters] == pytest.approx(
-            [m.start - removed_before[m.title] for m in episode.chapters], abs=0.05)
+            [m.start - lost_before[m.title] for m in episode.chapters], abs=0.05)
 
     # It really did take more than one request: otherwise the limit above was never
     # reached and this test says nothing the play above does not already say.
@@ -165,33 +163,64 @@ def test_a_break_at_the_end_is_cut_when_the_transcriber_stops_before_its_words(
     """Advertising after the goodbye, described by a reply that stops short of it.
 
     The last cue of a real reply carries every word the transcriber timed after its
-    segments ran out -- twenty seconds of them, in the episodes this was found on. A break
-    anchored there is placed past that cue's own stated end, and a bound taken from that
-    stated end refuses a cut that is perfectly correct.
-
-    That is how the advertising at the end of two real episodes survived on 2026-09-18.
-    The model reported both, at 0.95 and at 1.0 confidence, and both were thrown away.
+    segments ran out -- twenty seconds of them, in the episodes this was found on. A cut
+    ends where its last cue ends, so a last cue that ended where the reply said it did
+    would stop the cut short of the break's own words and leave most of a post-roll in.
+    The last cue, and only the last cue, ends where its words end.
     """
     reply = stop_segments_early(episode.transcript, 2)
     outside.serves("/audio/transcriptions", "application/json", reply)
 
     ending = [w for cue in episode.cues[-4:] for w in cue.words]
-    opens, first, _ = quote(ending)
-    closes, _, last = quote(ending, from_end=True)
+    opens, first = quote(ending)
     segment = {"start_cue": len(reply["segments"]) - 1, "end_cue": len(reply["segments"]),
                "category": "sponsor_read", "confidence": 0.95, "reason": "a post-roll",
-               "first_words": opens, "last_words": closes}
+               "first_words": opens}
     outside.serves("/chat/completions", "application/json", model_reply([segment]))
-    removed = (last.end - MARGIN_SECONDS) - (first.start + MARGIN_SECONDS)
+    lost = (episode.cues[-1].end - MARGIN_SECONDS) - (first.start + MARGIN_SECONDS)
 
     wanted = published
     with podclean_server(outside, tmp_path,
                          PODCLEANER_TRANSCRIBE_MAX_BYTES=str(1 << 30)) as podclean:
         requests.get(f"{podclean}/rss", params=wanted)
         played = requests.get(f"{podclean}/podcast", params=wanted).content
-        assert played != episode.mp3.read_bytes(), (
-            "the episode came back whole: the break at the end was refused because the "
-            "transcriber's last segment ended before its own words did")
         (tmp_path / "played.mp3").write_bytes(played)
         assert decode_seconds(tmp_path / "played.mp3") == pytest.approx(
-            decode_seconds(episode.mp3) - removed, abs=1.0)
+            decode_seconds(episode.mp3) - lost, abs=1.0), (
+            "the break at the end was not cut to its words: the transcriber's last "
+            "segment ended before they did")
+
+
+def test_a_cut_in_the_middle_ends_where_its_cue_does_and_not_where_its_words_were_parked(
+        outside, tmp_path, episode, published):
+    """The same artefact away from the end of the file means something else entirely.
+
+    When a transcriber's segments stop short in the *middle*, its aligner has dropped a
+    stretch of speech and parked the words that follow at the far end of the hole. The cue
+    then has words stamped up to half a minute past its own end, and the audio in between
+    is programme -- it is programme precisely because nothing transcribed it.
+
+    So a cut ends where the cue's own description of itself ends, never where its parked
+    words do: everything a cue said nothing about stays in.
+    """
+    reply = json.loads(episode.transcript)
+    middle = len(reply["segments"]) // 2
+    del reply["segments"][middle:middle + 2]
+    outside.serves("/audio/transcriptions", "application/json", reply)
+
+    named = [w for cue in episode.cues[middle - 2:middle + 2] for w in cue.words]
+    opens, first = quote(named)
+    outside.serves("/chat/completions", "application/json", model_reply([
+        {"start_cue": middle - 1, "end_cue": middle, "category": "sponsor_read",
+         "confidence": 0.95, "reason": "a break ending on a cue whose words are stamped late",
+         "first_words": opens}]))
+    lost = (episode.cues[middle - 1].end - MARGIN_SECONDS) - (first.start + MARGIN_SECONDS)
+
+    with podclean_server(outside, tmp_path,
+                         PODCLEANER_TRANSCRIBE_MAX_BYTES=str(1 << 30)) as podclean:
+        requests.get(f"{podclean}/rss", params=published)
+        played = requests.get(f"{podclean}/podcast", params=published).content
+        (tmp_path / "played.mp3").write_bytes(played)
+        assert decode_seconds(tmp_path / "played.mp3") == pytest.approx(
+            decode_seconds(episode.mp3) - lost, abs=1.0), (
+            "the cut reached past the cue's own end, into audio no cue described")
