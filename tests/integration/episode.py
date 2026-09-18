@@ -375,3 +375,22 @@ def _refuse_alignment(run: Run, words: Sequence[Word], opens: Cue, closes: Cue) 
             f"(wanted {wanted:.2f}s) and closes {tail:.2f}s before its last one ends "
             f"(wanted {STRADDLE_SECONDS}s): a cut anchored to the cue rather than to the "
             f"quoted words would pass every test in this suite")
+
+
+def quote(words: Sequence[Word], *, from_end: bool = False) -> Tuple[str, Word, Word]:
+    """Three consecutive words out of ``words`` that occur in them exactly once.
+
+    The server refuses a quote it can find twice -- rightly -- and this episode is one line
+    said over and over, so three words picked blindly are usually the same three words it
+    said a minute earlier. Every saying carries a number at both ends, so a window that
+    covers one is unique; this walks until it finds such a window, from whichever end the
+    caller needs an edge at, and hands back the words it chose so the caller can say what
+    the cut should be.
+    """
+    texts = [w.text for w in words]
+    windows = range(len(texts) - 3, -1, -1) if from_end else range(len(texts) - 2)
+    for at in windows:
+        window = texts[at:at + 3]
+        if sum(window == texts[i:i + 3] for i in range(len(texts) - 2)) == 1:
+            return " ".join(window), words[at], words[at + 2]
+    raise AssertionError("no three consecutive words here occur only once")

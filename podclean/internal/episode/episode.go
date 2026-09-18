@@ -193,7 +193,7 @@ func (p *Producer) transcribe(file *mp3.File) (*transcript.Transcript, error) {
 		parsed = append(parsed, answer)
 		starts = append(starts, piece.Start)
 	}
-	return transcript.Join(parsed, starts), nil
+	return transcript.Join(parsed, starts, file.Seconds()), nil
 }
 
 func publisherMarks(client *outside.Client, url *string) []classify.Mark {

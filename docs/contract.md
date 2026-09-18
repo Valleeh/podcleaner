@@ -163,6 +163,24 @@ a request refused for being a few hundred bytes over costs the whole episode.
 
 * One cue per transcription segment, numbered from 1. Each word is attached to the last
   cue that had started by the word's own start.
+* **The last cue, and only the last cue, ends where its words end** -- capped at the
+  length of the audio. A transcription reply does not agree with itself: its segments stop
+  while the words timed inside them keep going, so everything after the final segment
+  belongs to the final cue, and a bound taken from that cue's stated end refuses a
+  perfectly correct cut. That is how the advertising at the end of two real episodes
+  survived on 2026-09-18, reported at 0.95 and 1.0 confidence and discarded twice.
+  Every other cue is left exactly as the transcriber described it, and this is not
+  symmetry for its own sake: when segments stop short in the *middle*, the aligner has
+  dropped a stretch of speech and parked the words after it at the far end of the hole --
+  ninety-four cues of two hundred in the one real reply this project keeps, four of them
+  by more than ten seconds. The audio in that gap is programme, and no cue mentions it, so
+  a cut following those timings would remove it and leave no trace in any document. A
+  break whose last cue is stamped like that is refused. Two further conditions, both
+  measured on that reply: a word whose end equals its start is not followed at all, because
+  that is what those four cues are made of -- 7 of 7, 11 of 11, 39 of 39 and 33 of 34 of
+  their words carry no duration, which is the aligner saying it does not know where the
+  word is; and if the length of the audio is not known, the cue does not grow, because a
+  missing bound must never resolve towards cutting.
 * The prompt sees `[<index>] <m:ss> <text>` per line, minutes unpadded, seconds to two
   digits.
 * A segment is considered only if its category is one of the three that are cut and its

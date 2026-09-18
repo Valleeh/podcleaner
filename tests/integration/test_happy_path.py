@@ -20,10 +20,13 @@ about nothing.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 import requests
 
-from tests.integration.support import decode_seconds, podclean_server
+from tests.integration.episode import MARGIN_SECONDS, quote
+from tests.integration.support import decode_seconds, model_reply, podclean_server
 
 def test_a_listener_subscribes_and_plays_one_episode(outside, tmp_path, episode, published):
     # What those quotes imply: every break but a margin at each end, and every chapter
@@ -141,3 +144,54 @@ def test_an_episode_too_big_for_one_transcription_request_is_cut_all_the_same(
     # It really did take more than one request: otherwise the limit above was never
     # reached and this test says nothing the play above does not already say.
     assert outside.counts()["/audio/transcriptions"] > 1
+
+
+
+def stop_segments_early(transcript, drop):
+    """A transcription reply whose segments stop before its words do.
+
+    A real one does this: the segments end while the words timed inside them keep going,
+    and every one of those trailing words then belongs to the last segment that had
+    started. Dropping the last ``drop`` segments and leaving every word alone is that
+    artefact exactly -- nothing moves, the description of it just stops early.
+    """
+    reply = json.loads(transcript)
+    reply["segments"] = reply["segments"][:-drop]
+    return reply
+
+
+def test_a_break_at_the_end_is_cut_when_the_transcriber_stops_before_its_words(
+        outside, tmp_path, episode, published):
+    """Advertising after the goodbye, described by a reply that stops short of it.
+
+    The last cue of a real reply carries every word the transcriber timed after its
+    segments ran out -- twenty seconds of them, in the episodes this was found on. A break
+    anchored there is placed past that cue's own stated end, and a bound taken from that
+    stated end refuses a cut that is perfectly correct.
+
+    That is how the advertising at the end of two real episodes survived on 2026-09-18.
+    The model reported both, at 0.95 and at 1.0 confidence, and both were thrown away.
+    """
+    reply = stop_segments_early(episode.transcript, 2)
+    outside.serves("/audio/transcriptions", "application/json", reply)
+
+    ending = [w for cue in episode.cues[-4:] for w in cue.words]
+    opens, first, _ = quote(ending)
+    closes, _, last = quote(ending, from_end=True)
+    segment = {"start_cue": len(reply["segments"]) - 1, "end_cue": len(reply["segments"]),
+               "category": "sponsor_read", "confidence": 0.95, "reason": "a post-roll",
+               "first_words": opens, "last_words": closes}
+    outside.serves("/chat/completions", "application/json", model_reply([segment]))
+    removed = (last.end - MARGIN_SECONDS) - (first.start + MARGIN_SECONDS)
+
+    wanted = published
+    with podclean_server(outside, tmp_path,
+                         PODCLEANER_TRANSCRIBE_MAX_BYTES=str(1 << 30)) as podclean:
+        requests.get(f"{podclean}/rss", params=wanted)
+        played = requests.get(f"{podclean}/podcast", params=wanted).content
+        assert played != episode.mp3.read_bytes(), (
+            "the episode came back whole: the break at the end was refused because the "
+            "transcriber's last segment ended before its own words did")
+        (tmp_path / "played.mp3").write_bytes(played)
+        assert decode_seconds(tmp_path / "played.mp3") == pytest.approx(
+            decode_seconds(episode.mp3) - removed, abs=1.0)

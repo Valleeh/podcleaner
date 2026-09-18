@@ -83,7 +83,9 @@ func Parse(body []byte) (Piece, error) {
 // The renumbering is what the model is shown, so it is also what the model answers about.
 // Numbering each piece from 1 again would give several cues the same number and place
 // every break after the first one in the wrong episode entirely.
-func Join(pieces []Piece, starts []float64) *Transcript {
+//
+// seconds is how long the audio is, and it is the only bound on the last cue below.
+func Join(pieces []Piece, starts []float64, seconds float64) *Transcript {
 	t := &Transcript{}
 	var words []Word
 	for i, p := range pieces {
@@ -102,20 +104,69 @@ func Join(pieces []Piece, starts []float64) *Transcript {
 		}
 	}
 	t.attach(words)
+	t.closeLastCue(seconds)
 	return t
 }
 
 // attach hangs every word off the last cue that had started by the word's own start.
 func (t *Transcript) attach(words []Word) {
+	if len(t.Cues) == 0 {
+		return
+	}
 	at := 0
 	for _, w := range words {
 		for at+1 < len(t.Cues) && t.Cues[at+1].Start <= w.Start {
 			at++
 		}
-		if len(t.Cues) == 0 {
-			return
-		}
 		t.Cues[at].Words = append(t.Cues[at].Words, w)
+	}
+}
+
+// closeLastCue lets the final cue cover the words that landed in it, up to the length of
+// the audio -- and does that for the final cue only.
+//
+// A transcription reply does not agree with itself. Its segments stop while the words it
+// timed inside them keep going, and at the end of a file everything after the last segment
+// still belongs to the last cue that had started. A break anchored there is placed past
+// that cue's stated end, and the bound `plan` takes from that stated end then refuses a cut
+// that is perfectly correct: that is how the advertising at the end of two real episodes
+// survived on 2026-09-18, reported at 0.95 and at 1.0 confidence and thrown away twice.
+//
+// The same disagreement anywhere else in the file means something entirely different, and
+// following it there would remove programme. When segments stop short in the middle, the
+// aligner has dropped a stretch of speech and parked the words that follow at the far end
+// of the hole. Measured in the one real reply this project keeps: ninety-four cues of two
+// hundred are stamped past their own end, four by more than ten seconds, the worst by
+// twenty-eight -- and the audio inside that gap is programme, unmentioned by any cue,
+// which is why nothing would have shown that it had gone. So those cues are left exactly
+// as the transcriber described them and the break that names one is refused.
+//
+// A word that the aligner gave no duration at all is not a timing and is never followed.
+// That is what the four catastrophic cues above are made of -- 7 of 7, 11 of 11, 39 of 39
+// and 33 of 34 of their words have an end equal to their start, a cluster parked at the
+// far end of the hole rather than spread across it. A word with no length is the aligner
+// saying it does not know where the word is, and an edge this server cannot trust leaves
+// the advertising in. Ordinary words are milliseconds long; an end exactly equal to a
+// start is not a short word.
+//
+// The bound is the audio itself, which is the one number here no word timing can move. If
+// it is not known, the cue does not grow: a missing bound must not resolve towards cutting.
+func (t *Transcript) closeLastCue(seconds float64) {
+	if len(t.Cues) == 0 || seconds <= 0 {
+		return
+	}
+	last := &t.Cues[len(t.Cues)-1]
+	end := last.End
+	for _, w := range last.Words {
+		if w.End > w.Start && w.End > end {
+			end = w.End
+		}
+	}
+	if end > seconds {
+		end = seconds
+	}
+	if end > last.End {
+		last.End = end
 	}
 }
 
