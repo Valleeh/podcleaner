@@ -58,7 +58,7 @@ case "${1:-help}" in
   health)   shift; $PY tools/health.py "$@" ;;
   build)    docker build --build-arg SOURCE_DIGEST="$($PY tools/health.py --source-digest)" \
                          -t "$IMAGE" podclean ;;
-  test)     guard; shift; PODCLEAN_SERVER_CMD="$PWD/run serve" $PY -m pytest tests/integration -q "$@" ;;
+  test)     guard; shift; PODCLEAN_SERVER_CMD="${PODCLEAN_SERVER_CMD:-$PWD/run serve}" $PY -m pytest tests/integration -q "$@" ;;
   serve)    shift; serve "$@" ;;
   save)     guard; ./run test && git add -A && git status --short ;;
   help|-h|--help) usage ;;

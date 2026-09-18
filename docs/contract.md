@@ -22,7 +22,7 @@ Everything is an environment variable, read at use, no configuration file. `inte
 | `PODCLEANER_HOST` | `0.0.0.0` | address to listen on |
 | `PODCLEANER_PORT` | `8080` | port to listen on |
 | `PODCLEANER_BASE_URL` | `http://127.0.0.1:$PODCLEANER_PORT` | what it calls itself in the links it writes into a feed |
-| `PODCLEANER_STORE_ROOT` | `var/episodes` under the working directory | one directory per episode below this |
+| `PODCLEANER_STORE_ROOT` | `var/episodes` under the working directory; the image sets `/var/lib/podclean`, a volume, and `./run serve` sets `$PWD/var/episodes` | one directory per episode below this |
 | `PODCLEANER_LLM_BASE_URL` | `https://openrouter.ai/api/v1` | OpenAI-shaped; `/chat/completions` is appended |
 | `PODCLEANER_TRANSCRIBE_BASE_URL` | `https://openrouter.ai/api/v1` | OpenAI-shaped; `/audio/transcriptions` is appended |
 | `PODCLEANER_LLM_API_KEY` | empty | bearer token for **both** of the above |
@@ -36,8 +36,10 @@ environment has none.
 ## What it asks of other people
 
 `internal/outside`. Nothing retries: a second ask is a second bill. Only HTTP 200 is a
-success; anything else becomes the text of a 502, truncated to the first 200 characters
-of the body.
+success; anything else is a failure carrying `<url> answered <status>: ` and the first
+200 bytes of the body. From the publisher that is a 502 to the listener. From a paid
+endpoint, once the audio is in hand, it is a `failed` verdict with that text in `error`,
+and the listener is served the publisher's own audio with a 200.
 
 **The publisher's audio.** `GET` the enclosure URL with `user-agent: AntennaPod/3.6.0`
 and a 600 s receive timeout, body not decoded. The user-agent is not cosmetic: publishers
@@ -68,19 +70,28 @@ segments is rejected. Segments become the numbered cues the model answers about;
 words are what a cut's start is placed on.
 
 **Classification.** `POST $PODCLEANER_LLM_BASE_URL/chat/completions`, bearer auth, 900 s,
-JSON body: `model`, `messages` (system = the prompt, user = the hint, a blank line, then
-the rendered transcript), `temperature: 0`, `response_format: {"type": "json_object"}`.
-Nothing else is sent — no `max_tokens`, no reasoning switch — so both default models
-reason, and that is most of what an episode costs. Read back
-`choices[0].message.content`, strip a ``` or ```json fence if the model wrapped one round
-it, parse as JSON, and require a `segments` list. Anything else is an unreadable reply:
-not asked again now, and not a verdict either — the next play asks again.
+JSON body: `model`, `messages`, `temperature: 0`, `response_format: {"type":
+"json_object"}`. Nothing else is sent — no `max_tokens`, no reasoning switch — so whether
+a model reasons is the provider's default for that model id; the reply's `usage` block is
+not read or logged, so what an episode's transcription and its model calls each cost is
+not on record. `messages` is the system prompt and one user message of up to three parts,
+separated by blank lines and each absent with its separator when empty: the publisher's
+chapter marks under the line `The publisher's own chapter marks for this episode, as a
+starting point. They may be wrong and they do not say where the advertising is:` as one
+`m:ss title` per mark; the screening models' findings under their header (below); and the
+whole rendered transcript — nothing chunks it, and the model's context window is the only
+limit past the episode-length cap. Read back `choices[0].message.content`, strip a ``` or
+```json fence if the model wrapped one round it, parse as JSON, and require a `segments`
+list. Anything else is an unreadable reply: not asked again now, and not a decision about
+the audio either — `verdict.json` is written with `state: failed` and the error, nothing
+else is, and the next play asks again.
 
 ## The cascade
 
 `internal/classify`. `$PODCLEANER_LLM_SPEC` is `cascade:screen[+screen]>verifier`, or a
-bare model id for one pass. Every screening model reads the transcript; their segments
-are then listed to the verifier as `cues <a>-<b> (<category>): <reason>` under
+bare model id for one pass. Every screening model reads the transcript, with the
+publisher's marks; their segments are then listed to the verifier as
+`cues <a>-<b> (<category>): <reason>` under
 
     A first pass reported these; verify each and add any it missed:
 
@@ -99,14 +110,19 @@ word for word. For a port that cannot, what it must contain:
   `credits` — each defined, because only the first three are ever cut. `self_promo` has
   to name anything the same people make, another podcast they publish included, or the
   model files the hosts' own second show under `cross_promo` and it is cut;
+* the German words a break announces itself with — `Werbung`, `Anzeige`, `präsentiert
+  von`, `und jetzt zurück zur Sendung` — next to the English ones, because the episodes
+  this is measured on are German;
 * **cue numbers, never timestamps**;
 * boundaries tight, from the break's first cue to its last, never the host's lead-in and
-  never on into the programme after it — and that the cut ends where `end_cue` ends;
-* `first_words` copied **exactly**, three to six words, the break's own words even where
-  a cue holds the end of the host's sentence too. This is a mechanical check and has to
-  be stated as one — a count, the consequence, and a worked example of a one-word quote
-  thrown away. Stated as a preference it is ignored and most of the model's correct
-  answers are wasted;
+  never on into the programme after it; that the cut ends where `end_cue` ends; and that
+  a break can be one cue, or part of one;
+* `first_words` copied **exactly**, three to six words, taken from within
+  `start_cue`..`end_cue` because the quote is searched only in the words of the cues the
+  segment names, and the break's own words even where a cue holds the end of the host's
+  sentence too. This is a mechanical check and has to be stated as one — a count, the
+  consequence, and a worked example of a one-word quote thrown away. Stated as a
+  preference it is ignored and most of the model's correct answers are wasted;
 * **where advertising hides**, and that it very often follows the hosts' goodbye: a
   model that stops reading at the sign-off reports no post-roll;
 * stacked ads are separate segments; hand-off and return phrases belong to the break;
@@ -143,8 +159,9 @@ whole episode.
 
 * One cue per transcription segment, numbered from 1, with the segment's own start and
   end. Each word is attached to the last cue that had started by the word's own start.
-* **The last cue, and only the last cue, ends where its words end**, capped at the length
-  of the audio. A transcription reply does not agree with itself: its segments stop while
+* **The last cue, and only the last cue, is extended to where its words end** when that is
+  later than the segment's own end, capped at the length of the audio; it is never
+  shortened. A transcription reply does not agree with itself: its segments stop while
   the words timed inside them keep going. At the end of the file that is a post-roll the
   last segment stopped short of, and a cut ending at the segment's stated end would leave
   most of it in. In the middle it is the aligner having dropped a stretch of speech and
@@ -161,11 +178,13 @@ whole episode.
   number clamped to the last cue there is would run it to the end of the episode.
 * **The start is placed on the quoted first words**, matched against the words of the
   named cues: compared as bare letters and digits, case folded, everything else stripped,
-  Unicode-aware so that umlauts are letters. At most six tokens are used, from the front.
-  Found exactly once, the first matched word's start is the break's start. Found more
-  than once, the segment is refused as ambiguous. Not found, the first token is dropped
-  and it is tried again, down to three tokens — every retry moving the start later, never
-  earlier. Fewer than three tokens is refused.
+  Unicode-aware so that umlauts are letters. A transcript word with no letter or digit in
+  it is dropped from the sequence first, so a quote matches across standalone
+  punctuation. At most six tokens of the quote are used, from the front. Found exactly
+  once, the first matched word's start is the break's start. Found more than once, the
+  segment is refused as ambiguous. Not found, the first token is dropped and it is tried
+  again, down to three tokens — every retry moving the start later, never earlier. Fewer
+  than three tokens is refused.
 * **The end is where the last named cue ends.** No quote is asked for it: the cue that
   opens a break usually opens with the host still talking, but the cue that closes one
   closes with it.
@@ -179,16 +198,20 @@ whole episode.
 | value | where | what it decides |
 |---|---|---|
 | 1.5 s | `plan.margin` | kept inside each edge of a break |
+| 6 / 3 | `plan.maxTokens` / `plan.minTokens` | how much of a quote is matched on, and how short it may wear down to |
 | 0.5 | `plan.minConfidence` | below this the model's segment is ignored |
 | 600 s | `plan.longestBreak` | a single cut longer than this refuses the whole plan |
 | 0.2 | `plan.mostOfAnEpisode` | cuts totalling more than this share of the episode refuse the whole plan |
 | 8400 s | `episode.longestEpisode` | longer than this and the episode is served untouched, unexamined and unbilled |
+| 3 s | `mp3.minimumSeconds` | fewer seconds of parsable frames and the publisher's reply is not audio |
 | `sponsor_read`, `host_endorsement`, `cross_promo` | `plan.cuttable` | the only categories ever cut |
 
-A plan's outcome is one of five states, written into `verdict.json`: `cut`, `clean` (the
-model proposed nothing), `refused` (it proposed something that could not be trusted),
-`untouched` (never examined), `failed` (a stage did not finish). Only `failed` is retried
-on the next play.
+A plan's outcome is one of five states, written into `verdict.json`: `cut` (at least one
+candidate was placed; a refused sibling is recorded in `error`), `clean` (nothing the
+model proposed was a cuttable category at or above the confidence threshold — `proposed`
+may still be non-empty), `refused` (every such candidate was refused, or the plan as a
+whole was not believable), `untouched` (never examined), `failed` (a stage did not
+finish). Only `failed` is retried on the next play.
 
 ## The cut itself
 
@@ -205,7 +228,7 @@ on the next play.
   own bytes. A replay is byte-identical by construction.
 * The duration of the episode is the sum of the frame durations, not anything a header
   claims. Whether a reply is audio at all is the same question: the bytes must parse as
-  at least a few seconds of MP3 frames, or it is not an episode however it describes
+  at least the minimum above of MP3 frames, or it is not an episode however it describes
   itself.
 
 ## What it writes on disk
@@ -221,43 +244,49 @@ port that changes it silently breaks the one tool that can prove the one rule.
 | file | written | what it is |
 |---|---|---|
 | `source.json` | when a feed names the episode | `{"url": <publisher enclosure>, "feed": <feed url>, "chapters_url": <publisher's marks or null>}`. Its presence is what makes an episode playable: no `source.json`, 404, and nothing goes out. |
-| `audio.mp3` | first play | the ID3 chapter tag, then the kept frames |
-| `chapters.json` | first play | the marks on the served timeline |
-| `transcript.vtt` | first play | the transcript on the served timeline |
+| `audio.mp3` | first play | when cut: the ID3 chapter tag (only if there are marks), then the kept frames — the publisher's own tag, Xing/Info frame and any bytes between frames are gone. Otherwise the publisher's bytes exactly as fetched. |
+| `chapters.json` | first play, except `untouched` | the marks on the served timeline |
+| `transcript.vtt` | first play, except `untouched` | the transcript on the served timeline |
 | `verdict.json` | first play, always, last | what was decided |
 
 Every file is written to `<name>.tmp` and renamed, so a reader sees it whole or not at
 all. Audio first, documents next, verdict last — a verdict is the record that the work
 finished. When the state is `failed`, only `verdict.json` is written, so the next play
-retries; the listener is served the publisher's own bytes meanwhile, out of memory.
+retries. A failure after the audio was in hand (transcription, classification) serves the
+publisher's own bytes meanwhile, out of memory; a failed fetch, or a reply that is not
+audio, is answered 502.
 
-`verdict.json` carries `schema: "podclean.verdict/1"`, the state and its error, the model
-spec that answered, the breaks the model proposed with their categories and confidences,
-how many were proposed, the cue count, `duration_seconds`, `removed_seconds`, `removed`
-as `[[start, end], ...]`, `chapters` as `[[at, title], ...]`, and `source_sha256` over the
+`verdict.json` carries `schema` (`"podclean.verdict/1"`), `state`, `error` (the refusals
+joined with `; `, on a `cut` verdict too), `model_spec` (the configured spec, whether or
+not a model answered), `proposed` as `[{start_cue, end_cue, category, confidence}]`,
+`proposed_count`, `cues`, `duration_seconds`, `removed_seconds`, `removed` as
+`[[start, end], ...]`, `chapters` as `[[at, title], ...]`, and `source_sha256` over the
 bytes that were fetched — what `./run verify` uses to notice that the publisher has
-re-stitched the episode since, in which case it refuses to compare.
+re-stitched the episode since, in which case it refuses to compare. Every seconds value is
+rounded to three decimals.
 
 One heavy job at a time: production is taken under a global lock, and a second play of
 the same episode waits for the first rather than paying again.
 
 ## What it serves
 
-`internal/web`. Four routes, everything else 404 `not here`.
+`internal/web`. Four routes, everything else 404 `not here`. Every route answers 400 when
+a parameter it needs is missing or blank.
 
 | | |
 |---|---|
-| `GET /rss?feed=` | 200 `application/rss+xml`; 400 if the parameter is missing; 502 with the publisher's failure text |
+| `GET /rss?feed=` | 200 `application/rss+xml`; 502 with the publisher's failure text |
 | `GET /podcast?feed=&guid=` | 200 `audio/mpeg`, **no charset**; 206 with `content-range` for a range; 404 for an episode no feed has named; 502 if the publisher failed |
-| `GET /chapters?feed=&guid=` | 200 `application/json+chapters`; 404 until the audio exists |
-| `GET /transcript?feed=&guid=` | 200 `text/vtt`; 404 until the audio exists |
+| `GET /chapters?feed=&guid=` | 200 `application/json+chapters`; 404 until the document exists — for an `untouched` episode, for ever |
+| `GET /transcript?feed=&guid=` | 200 `text/vtt`; 404 likewise |
 
 `HEAD` is answered as the `GET` would be, without a body — a podcatcher asks it before it
 queues a download, and a 404 leaves the episode stuck at "waiting to download" forever.
-Every file reply carries `accept-ranges: bytes`. One range is understood, in all three
-forms (`a-b`, `a-`, `-n`); several ranges, an unparsable one, or one starting past the end
-are answered with the whole file. Every request is logged with the client's address and
-user-agent, the status, the bytes and whether a range was asked for.
+The audio reply carries `accept-ranges: bytes`; the feed and the two documents ignore a
+range and are always whole. One range is understood, in all three forms (`a-b`, `a-`,
+`-n`); several ranges, an unparsable one, or one starting past the end are answered with
+the whole file. Every request is logged as `from=<address> agent=<user-agent> <METHOD>
+<URI> status=<n> bytes=<written> range=<the Range header as sent>`.
 
 Two error bodies are worth keeping recognisable because they answer the question a
 reader has: `unknown episode: no feed fetched by this server has named it`, and `not
@@ -276,15 +305,17 @@ served timeline, `HH:MM:SS.mmm --> HH:MM:SS.mmm`.
 id `toc`, top-level and ordered, listing every chapter id) and one `CHAP` per mark
 (element id `ch1`, `ch2`, …, start and end in milliseconds as 32-bit big-endian, both
 byte offsets `0xFFFFFFFF`, one embedded `TIT2` with a UTF-8 encoding byte). All frame
-sizes syncsafe. The last chapter ends at the cut episode's own duration. Written only
-for an episode that was actually cut; an untouched one keeps whatever the publisher's own
-file carried. It exists because Overcast displays chapter marks from the file and ignores
-the feed's link, and Apple Podcasts reads the file first.
+sizes syncsafe. The last chapter ends at the cut episode's own duration. Written only for
+an episode that was actually cut and has at least one mark — with none there is no tag at
+all; every other episode keeps whatever the publisher's own file carried. It exists
+because Overcast displays chapter marks from the file and ignores the feed's link, and
+Apple Podcasts reads the file first.
 
 **Both timelines** are the same arithmetic in one place (`internal/timeline`), so the two
 cannot disagree: every time is moved earlier by exactly the audio removed before it. A
 transcript line that overlaps a cut at all is dropped whole rather than trimmed, and a
-chapter mark that falls inside a break the model reported is dropped rather than moved to
+chapter mark whose moment was removed — inside a cut, which is the break less its
+margins, not merely inside the break the model reported — is dropped rather than moved to
 the join.
 
 ## Rewriting a feed
@@ -295,11 +326,13 @@ only edits are made by regex, inside `<item>` elements:
 
 * the `url` attribute of `<enclosure>` becomes `<base>/podcast?feed=…&amp;guid=…`;
 * where the feed declares `https://podcastindex.org/namespace/1.0` under any prefix, the
-  chapters and transcript elements of that prefix are repointed the same way, or inserted
-  immediately before `</item>` if the publisher had none, typed
-  `application/json+chapters` and `text/vtt`. No namespace declared, no sidecar links;
+  first chapters element and the first transcript element of that prefix in the item are
+  repointed the same way, url and type, or one is inserted immediately before `</item>`
+  if the publisher had none, typed `application/json+chapters` and `text/vtt`; any further
+  ones are left as the publisher wrote them. No namespace declared, no document links;
 * the query is URL-encoded and its separator written `&amp;`, because it is going into XML;
-* the guid is read as a text node with CDATA markers stripped and trimmed.
+* the guid is the raw text between its tags, CDATA markers stripped and trimmed, entities
+  left as written.
 
 An item with no guid, no enclosure, or a guid that another item in the same feed also
 carries is left exactly as the publisher wrote it. A feed in which no item at all can be
@@ -308,21 +341,28 @@ bound is answered 502.
 ## The tools outside the server
 
 `tools/verify.py` is the acceptance measure and the only thing that can prove the one
-rule: it re-fetches what a listener gets, fetches the publisher's ad-free master by asking
-with a plain client's user-agent, walks the two frame by frame, and reports the
-advertising removed and whether any programme went with it. It reads `verdict.json` for
-`source_sha256` and refuses to answer when the publisher has re-stitched since. When the
-publisher serves the same bytes to both user-agents there is nothing to measure and it
-says so; Megaphone feeds are in that class.
+rule. It fetches the publisher's enclosure twice — with the podcatcher user-agent, which
+is the stitched file this server cut, and with a plain client's, which is the ad-free
+master — walks the two frame by frame to recover the inserted breaks exactly, and checks
+the intervals `verdict.json` says were removed against them. The served file itself is not
+fetched: what is proven is the plan. It refuses to answer when `source_sha256` says the
+publisher has re-stitched since, and when the two fetches are the same bytes there is
+nothing to measure and it says so.
 
-`tools/health.py` checks that the process is up, that the code running is the checkout,
-that the server answers locally, that the public address answers, that a feed still comes
-back rewritten, and that the newest episode has a verdict. It pins four things no other
-document states: `/podcast` with no query answers exactly 400 (how it tells "alive and
-validating" from "dead"); the public address answers 400 or 401 (401 being the basic auth
-in front of it); `/rss?feed=` answers 200 with `/podcast?` somewhere in the body; and the
-newest `verdict.json` has a state of `cut` or `clean`.
+`tools/health.py` knows the `./run serve` deployment: it checks that its `docker run` is
+running, that the image's `org.podclean.source` label equals a sha256 over
+`podclean/**/*.go` and `go.mod` — a port in another language has to change that filter or
+the check proves nothing — and that a container of that image is up; that the server
+answers locally; that the public address, read from that process's environment, answers;
+that a feed named on the command line still comes back rewritten (without one the check
+is skipped and counted as passed); and that the newest `verdict.json` has a state other
+than `failed`. It pins three things no other document states: `/podcast` with no query
+answers exactly 400 (how it tells "alive and validating" from "dead"); the public address
+answers 400 or 401 (401 being the basic auth in front of it); and `/rss?feed=` answers 200
+with `/podcast?` somewhere in the body.
 
 So three programs share these names, and renaming one silently breaks a tool rather than
 the server: the store directory, `verdict.json`'s `state`, `removed`, `removed_seconds`
-and `source_sha256` (bare lowercase hex, no `sha256:` prefix), and `source.json`'s `url`.
+and `source_sha256` (bare lowercase hex, no `sha256:` prefix), `source.json`'s `url`, and
+the podcatcher user-agent, which `tools/verify.py` re-fetches with and must equal the
+server's.

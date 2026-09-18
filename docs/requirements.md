@@ -23,22 +23,27 @@ an episode of silence and can only check the arithmetic.
 put the original links back, drop the ones this server added, and the two are identical.
 *Asserted by* `test_the_feed_is_the_publishers_with_only_the_links_changed`.
 
-**3.** Every episode this server can address has its audio link pointing here.
-*Asserted by* `test_the_feed_is_the_publishers_with_only_the_links_changed`.
+**3.** Every episode this server can address has its audio link pointing here, and links
+to its two documents here; a chapter link the publisher wrote is replaced by this
+server's, not joined by it.
+*Asserted by* `test_the_feed_is_the_publishers_with_only_the_links_changed`, and for
+"every" by `test_two_episodes_sharing_an_identifier_keep_the_publishers_link`.
 
-**4.** Only links this server can actually serve are repointed or added. A feed that does
-not declare the namespace a sidecar link would be written in keeps exactly what it had.
+**4.** A feed that does not declare the namespace a document link would be written in
+gets no document links; its audio links are repointed as usual.
 *Asserted by* `test_a_feed_without_the_podcast_namespace_keeps_exactly_what_it_had`.
 
 **5.** An episode this server cannot address unambiguously keeps the publisher's own
-link; the other episodes in the same feed are repointed as usual.
+link.
 *Asserted by* `test_two_episodes_sharing_an_identifier_keep_the_publishers_link`.
 
 **6.** An episode is named as the publisher named it; document syntax around the name is
 not part of it.
 *Asserted by* `test_a_guid_wrapped_in_cdata_names_the_episode_the_publisher_named`.
 
-**7.** Reading a feed is the only thing that makes its episodes playable here.
+**7.** An episode no fetched feed has ever named is refused, and no request goes out to
+anyone on its behalf: reading a feed is the only thing that makes its episodes playable
+here.
 *Asserted by* `test_an_episode_no_feed_has_named_is_refused_and_nothing_goes_out`.
 
 **8.** A feed with no addressable episode in it is answered as an error, not served back
@@ -47,8 +52,8 @@ unchanged.
 
 ## Playing
 
-**9.** The audio returned is the publisher's own with whole advertising breaks missing
-and nothing else altered.
+**9.** The audio returned is the publisher's own with the advertising breaks missing, but
+for a moment at each edge, and nothing else altered.
 *Asserted by* `test_a_listener_subscribes_and_plays_one_episode`; that the bytes are the
 publisher's, by `./run verify`.
 
@@ -58,9 +63,10 @@ shares no code with the server.
 
 **11.** Every cut begins and ends inside advertising, and some of each break stays
 audible at both of its edges.
-*Asserted by* `test_a_listener_subscribes_and_plays_one_episode` as arithmetic — a cut
-runs from a margin after the break's first word to a margin before its last cue ends —
-and as a fact about audio by `./run verify`.
+*Asserted by* `test_a_listener_subscribes_and_plays_one_episode` as arithmetic for how
+much of each break goes — a margin after the break's first word to a margin before its
+last cue ends. That it goes from both edges, and that both land in advertising, only by
+`./run verify`.
 
 **12.** A cut never reaches audio no cue describes: it ends where the cue's own
 description ends, not where words stamped past that end do.
@@ -72,7 +78,7 @@ transcriber's description of the last cue stops before it.
 *Asserted by* `test_a_break_at_the_end_is_cut_when_the_transcriber_stops_before_its_words`.
 
 **14.** An episode too long to be transcribed in one request is cut all the same, and its
-documents land where they would have.
+chapter marks land where they would have.
 *Asserted by* `test_an_episode_too_big_for_one_transcription_request_is_cut_all_the_same`.
 
 **15.** What is published is audio the publisher sent, not whatever their server answered
@@ -80,125 +86,124 @@ with. A reply that is not audio is a failure however it describes itself; nothin
 for on its behalf and nothing is kept.
 *Asserted by* `test_a_publisher_that_answers_with_something_that_is_not_audio_is_refused`.
 
-**16.** An episode no fetched feed has ever named is refused, and no request goes out to
-anyone on its behalf.
-*Asserted by* `test_an_episode_no_feed_has_named_is_refused_and_nothing_goes_out`.
-
-**17.** When the publisher fails, that is reported as a failure, nothing is kept, and the
+**16.** When the publisher fails, that is reported as a failure, nothing is kept, and the
 next play tries the publisher again.
 *Asserted by* `test_a_publisher_that_fails_is_reported_and_nothing_is_kept`.
 
-**18.** The connection is held until the audio is whole; no listener ever receives half
+**17.** The connection is held until the audio is whole; no listener ever receives half
 an episode.
 *Not asserted.*
 
-**19.** The question a podcatcher asks before it downloads is answered the way the
+**18.** The question a podcatcher asks before it downloads is answered the way the
 download itself would be: the same status, the size it is about to get, and no body.
 *Asserted by* `test_a_listener_subscribes_and_plays_one_episode`.
 
-**20.** A request for part of the file is answered with that part and the range it
-covers, and every reply says that ranges may be asked for.
+**19.** A request for part of the file is answered with that part, the range it covers,
+and word that ranges may be asked for.
 *Asserted by* `test_a_listener_subscribes_and_plays_one_episode`.
 
-**21.** Audio is served as audio: no character encoding is claimed for bytes that are not
+**20.** Audio is served as audio: no character encoding is claimed for bytes that are not
 characters.
 *Asserted by* `test_a_listener_subscribes_and_plays_one_episode` and
 `test_a_reply_the_model_mangles_leaves_the_episode_whole`.
 
 ## Playing again
 
-**22.** The same request returns the same bytes, for as long as the episode exists here.
+**21.** The same request returns the same bytes, for as long as the episode exists here.
 *Asserted by* `test_a_listener_subscribes_and_plays_one_episode`.
 
-**23.** Nothing outside is asked a second time, and nothing is paid for twice: one
+**22.** Nothing outside is asked a second time, and nothing is paid for twice: one
 episode costs one pass over it.
 *Asserted by* `test_a_listener_subscribes_and_plays_one_episode`.
 
-**24.** Simultaneous first plays of one episode pay for one pass and get the same answer.
+**23.** Simultaneous first plays of one episode pay for one pass and get the same answer.
 *Asserted by* `test_simultaneous_first_plays_only_pay_once`.
 
-**25.** A verdict, once reached, is not revisited — across a restart of the server as
+**24.** A verdict, once reached, is not revisited — across a restart of the server as
 well. The audio and both documents come back unchanged and nobody outside is asked again.
-*Asserted by* `test_untouched_audio_keeps_its_documents_and_is_not_reexamined`.
+*Asserted by* `test_untouched_audio_keeps_its_documents_and_is_not_reexamined` for a
+verdict that left the audio whole, and within one run of the server by
+`test_a_listener_subscribes_and_plays_one_episode` for a cut; a cut across a restart is
+*not asserted*.
 
-**26.** Work that did not finish is not remembered as a verdict: the next play does it
+**25.** Work that did not finish is not remembered as a verdict: the next play does it
 again.
 *Asserted by* `test_a_reply_the_model_mangles_leaves_the_episode_whole` and
 `test_a_publisher_that_fails_is_reported_and_nothing_is_kept`.
 
 ## Refusing
 
-**27.** When the plan cannot be trusted, the publisher's own audio is served whole.
+**26.** When the plan cannot be trusted, the publisher's own audio is served whole.
 Serving it untouched is always available as an answer, and is the answer whenever the
 alternative is a cut that might take programme.
 *Asserted by* every test in `test_refusing_to_cut.py`.
 
-**28.** A refusal is visible in what is served, not only in a log: the listener gets the
+**27.** A refusal is visible in what is served, not only in a log: the listener gets the
 publisher's bytes, and no document claims a cut was made.
-*Asserted by* `test_a_reply_the_model_mangles_leaves_the_episode_whole`.
+*Asserted by* `test_untouched_audio_keeps_its_documents_and_is_not_reexamined` for a plan
+that was refused, and `test_a_reply_the_model_mangles_leaves_the_episode_whole` for a
+reply that could not be read.
 
-**29.** A break the model is not confident about is left in.
+**28.** A break the model is not confident about is left in.
 *Asserted by* `test_a_break_the_model_is_only_guessing_at_is_left_in`.
 
-**30.** A break whose first words cannot be found in the cues it names is left in.
+**29.** A break whose first words are not in the transcript is left in.
 *Asserted by* `test_a_break_whose_words_are_not_in_the_transcript_is_left_in`.
 
-**31.** A break naming a cue the transcript never had is left in whole, rather than
+**30.** A break naming a cue the transcript never had is left in whole, rather than
 narrowed to the cues there are.
 *Asserted by* `test_a_break_named_by_a_cue_the_transcript_never_had_is_left_in`.
 
-**32.** A plan that is not believable as a whole leaves the whole episode untouched: one
+**31.** A plan that is not believable as a whole leaves the whole episode untouched: one
 break implausibly long, or breaks adding up to an implausible share of the episode.
-*Asserted by* `test_a_break_that_would_swallow_most_of_the_episode_is_not_cut` for the
-share; the single implausibly long break is *not asserted*.
+*Asserted by* `test_a_break_that_would_swallow_most_of_the_episode_is_not_cut`, whose one
+break is both longer than any believable break and most of the episode — so it proves
+that one of the two rules exists, and neither on its own.
 
-**33.** A reply this server cannot read is not a verdict about the audio: the episode is
+**32.** A reply this server cannot read is not a verdict about the audio: the episode is
 served whole and no documents are published for it.
 *Asserted by* `test_a_reply_the_model_mangles_leaves_the_episode_whole`.
 
-**34.** An episode too long to examine is served untouched, and nothing is asked about it.
+**33.** An episode too long to examine is served untouched, and nothing is asked about it.
 *Not asserted.*
 
 ## The chapter marks and the transcript
 
-**35.** Neither exists before the audio does, and asking for one never causes the audio
+**34.** Neither exists before the audio does, and asking for one never causes the audio
 to be made or anything to be paid for.
 *Asserted by* `test_the_sidecars_say_nothing_until_the_episode_has_been_played`.
 
-**36.** They describe the audio that is served, never the audio the publisher sent: every
+**35.** They describe the audio that is served, never the audio the publisher sent: every
 time in them is on the served timeline.
 *Asserted by* `test_a_listener_subscribes_and_plays_one_episode` and
-`test_an_episode_too_big_for_one_transcription_request_is_cut_all_the_same`.
+`test_an_episode_too_big_for_one_transcription_request_is_cut_all_the_same` for the
+chapter marks; the transcript's times are *not asserted*.
 
-**37.** Anything whose audio was removed is absent from them rather than moved to the
+**36.** Anything whose audio was removed is absent from them rather than moved to the
 join, and neither ever claims words that are not in the file that was served.
 *Asserted by* `test_a_listener_subscribes_and_plays_one_episode` for the transcript; that
-a chapter mark inside a removed break is dropped is *not asserted*.
+a chapter mark inside a cut is dropped is *not asserted*.
 
-**38.** An episode served untouched keeps documents that describe all of it.
+**37.** An episode examined and served whole has documents that describe all of it.
 *Asserted by* `test_untouched_audio_keeps_its_documents_and_is_not_reexamined`.
 
-**39.** A cut episode carries the same marks inside the audio file itself, in the form a
+**38.** A cut episode carries the same marks inside the audio file itself, in the form a
 podcatcher reads from an MP3, so that the two cannot disagree.
 *Not asserted.*
 
 ## Throughout
 
-**40.** Where this server cannot improve on the publisher, it gets out of the way and
-serves what the publisher sent.
-*Asserted by* every test in `test_refusing_to_cut.py`.
+**39.** This server talks to the publisher, the transcriber and the model, and to nobody
+else.
+*Asserted by* every test, through the check the outside stub makes as it closes.
 
-**41.** Nothing is served that the listener could not have got from the publisher, except
-the documents this server adds.
-*Asserted by* `test_the_feed_is_the_publishers_with_only_the_links_changed` and
-`test_a_listener_subscribes_and_plays_one_episode`.
-
-**42.** A route a crawler can reach never starts paid work.
+**40.** Nothing but the first play of an episode a feed has named starts paid work.
 *Asserted by* every test in `test_the_routes.py`.
 
 ## What has no test yet
 
-8, 18, 34, 39, the long-break half of 32 and the dropped-mark half of 37. Listed so that
-the gap is visible, not as a backlog. 1 and the audio half of 11 are not the suite's to
-prove: the suite plays silence, and only `./run verify` can say that what was removed was
+8, 17, 33 and 38; each half of 31 on its own; the dropped-mark half of 36; the
+transcript's times in 35; a cut across a restart in 24. Listed so that the gap is visible,
+not as a backlog. 1, the bytes half of 9 and the edges of 11 are not the suite's to prove:
+the suite plays silence, and only `./run verify` can say that what was removed was
 advertising.
