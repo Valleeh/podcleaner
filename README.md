@@ -1,29 +1,227 @@
 # PodClean
 
-Subscribe to a podcast through PodClean instead of through its publisher, and the episodes
-your podcatcher downloads are the publisher's own — with the advertising cut out.
+**Fewer podcast ads. The same show, in your usual podcast app.**
 
-Same show, same episode list, same titles, show notes and publication dates. The audio is
-the publisher's own encoded bytes with the advertising breaks left out. Nothing is
-re-encoded, so what you hear is what they recorded.
+PodClean is a self-hosted service that removes advertising from podcast episodes.
+Subscribe to a podcast through PodClean instead of through its publisher, and when your
+app downloads an episode it gets the publisher's own audio with the advertising breaks
+cut out. Titles, episode list, show notes and publication dates stay the same. Nothing is
+re-encoded: what remains is the publisher's own MP3 frames. Chapter marks and a
+transcript, timed to the audio it serves, come with every cut episode.
 
-## The one rule
+```mermaid
+flowchart LR
+    A[Publisher feed] -->|links rewritten| B[PodClean feed]
+    B --> C[Your podcast app]
+    C -->|requests an episode| D[PodClean]
+    D -->|fetches, cuts, serves| C
+```
 
-**No second of programme is ever removed.**
+[Get started](#get-started) · [How it works](#how-it-works) · [Configuration and storage](#configuration-and-storage) · [Development](#development)
 
-A missed advertisement is an annoyance. A sentence that disappears cannot be recovered,
-and the listener cannot even tell it is gone. Every trade-off resolves that way, and the
-price is real: a good part of the advertising survives — between a third and a half, on
-the episodes measured. A break that cannot be placed on the exact words the model quoted
-is left in. A plan that is not believable as a whole is thrown away and the episode is
-served untouched.
+## What to expect
 
-That is measured, not asserted. Publishers who stitch advertising in serve the ad-free
-master to a plain HTTP client and the stitched copy to a podcatcher, and the stitched copy
-reuses the master's frames byte for byte — so walking the two against each other recovers
-every inserted break exactly, and the intervals this server removed can be checked against
-them. `./run verify` does exactly that, shares no code with the part that does the
-cutting, and reports both numbers:
+| | |
+|---|---|
+| **Subscribing** | One RSS URL per podcast, in any app that can subscribe by URL. |
+| **First download** | PodClean downloads, transcribes and classifies the episode before sending it: a few minutes, rising with the episode's length. Your app waits. |
+| **Later downloads** | Served from disk, byte-identical, no new API calls. |
+| **Cost** | Transcription and classification through [OpenRouter](https://openrouter.ai): a few cents per episode, rising with length. Every episode is paid for once. |
+| **Audio** | MP3 only. Whole frames are left out; nothing is re-encoded. |
+| **Chapters and transcript** | Generated in the same pass, adjusted for the removed audio, and written into the MP3 as well. Whether your app shows them depends on the app. |
+
+Episodes are processed **on demand**, when your app asks for them, not when the feed
+refreshes. One episode is processed at a time; everything already stored keeps being
+served meanwhile.
+
+> **The programme is never cut.** Where it is not certain that a stretch is advertising, it
+> stays. Expect some advertising to survive; expect no sentence of the show to go.
+> [Why](#why-some-advertising-remains) and [how that is measured](#how-results-are-checked).
+
+## Get started
+
+You need Docker with Compose, an OpenRouter API key, and an address your podcast app can
+reach. The server is a single Go binary: no database, no ffmpeg. Audio goes to the
+transcription API and the transcript to the classification models; nothing else leaves
+the host.
+
+### 1. Configure
+
+```sh
+git clone https://github.com/Valleeh/podcleaner.git
+cd podcleaner
+cp .env.example .env
+```
+
+Fill in the two required values in `.env`:
+
+```dotenv
+PODCLEANER_BASE_URL=https://podclean.example.org
+PODCLEANER_LLM_API_KEY=your-openrouter-api-key
+```
+
+`PODCLEANER_BASE_URL` is the address **your podcast app will use**. PodClean writes it
+into every episode link, so it has to be reachable from your listening devices.
+
+### 2. Start it
+
+```sh
+docker compose up -d --build
+```
+
+Compose publishes port `8080`. Put a reverse proxy in front of it for HTTPS and access
+control — the episodes you produce are yours, not the internet's, and PodClean has no
+authentication of its own — and let the proxy keep a request open for the minutes a first
+download takes.
+
+### 3. Add a podcast
+
+Take the publisher's feed URL, URL-encode it, and put it after `/rss?feed=`:
+
+```text
+Publisher feed:  https://example.com/podcast/feed.xml
+Subscribe to:    https://podclean.example.org/rss?feed=https%3A%2F%2Fexample.com%2Fpodcast%2Ffeed.xml
+```
+
+Paste the second URL into your app's **Add by URL** (or equivalent). The app reads the
+feed from PodClean and asks PodClean for the episodes; the first play of each one waits
+for processing. Episodes the app already downloaded under the original subscription stay
+as they are.
+
+## How it works
+
+```mermaid
+flowchart TD
+    A[Episode requested] --> B{Already stored?}
+    B -->|yes| C[Serve the stored audio]
+    B -->|no| D[Download the publisher's MP3 as a podcast app would]
+    D --> E[Transcribe with word timings]
+    E --> F[Models mark the advertising and the chapters]
+    F --> G[Check every break's quoted words and cue range]
+    G --> H[Leave the frames of each verified break out]
+    H --> I[Shift chapters and transcript by what was removed]
+    I --> J[Store and serve]
+```
+
+1. **Fetch the audio as a podcast app would.** Publishers serve different copies to
+   different clients; the podcatcher's copy is the one with the ads. The bytes must parse
+   as MP3 frames, or the reply is not an episode, whatever it calls itself.
+2. **Transcribe.** Large files go up in pieces split on frame boundaries, and the pieces
+   are joined back onto one timeline.
+3. **Mark the advertising and the chapters.** By default a cheap screening model reads the
+   transcript first and a stronger verifier reads it with those findings; only the
+   verifier's answer counts. Both come from one reading, so the chapter marks know where
+   the breaks are.
+4. **Check every break.** The model names the break's first and last cues and quotes its
+   first words. The words must be found, once, inside the cues it named; the cut starts on
+   that word and ends where the last named cue ends. A break whose words cannot be found,
+   whose cue numbers do not exist, or that the model is not confident about is left in. A
+   plan that is not believable as a whole — one break over 10 minutes, or breaks adding up
+   to more than a fifth of the episode — is thrown away entire.
+5. **Cut and publish.** The frames inside each verified break are left out. Chapter marks
+   and transcript lines move earlier by exactly the audio removed before them; anything
+   inside a cut is dropped rather than moved to the join. The marks are also written into
+   the MP3, because some apps read those and ignore the feed's link.
+
+### Why some advertising remains
+
+**No second of programme is ever removed.** A missed advertisement is an annoyance; a
+sentence that disappears cannot be recovered, and the listener cannot even tell it is
+gone. Every trade-off resolves that way.
+
+So a cut begins 1.5 s after the break's first word and ends 1.5 s before the break's last
+cue ends. The margin is where an error of a word lands — a quote one word early, a
+timestamp a beat late, a cue that runs a breath past the advertisement — and it is spent
+on leaving advertising in:
+
+```text
+                 break as the model reported it
+                 |<---------------------------------->|
+before:   SHOW   | 1.5 s |        ADVERTISING         | 1.5 s |   SHOW
+after:    SHOW   | 1.5 s |                            | 1.5 s |   SHOW
+```
+
+*Illustration; actual cuts land on MP3 frame edges, 26 ms apart.*
+
+Only paid reads, host endorsements and trailers for other shows are cut. The show's own
+promotion — its live dates, its other podcast, its outro — and the credits stay in. Whole
+breaks are sometimes missed. On the episodes measured, between a third and a half of the
+advertising survives.
+
+Smaller things a listener notices:
+
+* The join may fall in the middle of a word; what is on both sides of it is advertising.
+* A transcript line that overlapped a cut is dropped whole, so a few seconds either side
+  of each join have audio and no text.
+* Chapter titles are the model's own and can be wrong about what a passage is called; the
+  times are arithmetic. Where a mark fell inside a cut, the stretch after the join carries
+  the previous chapter's title.
+* A cut episode carries no cover art. An episode served whole keeps the publisher's file
+  as it was.
+
+### When no cut is made
+
+| Situation | What the listener gets | Then |
+|---|---|---|
+| No eligible advertising, or every break refused | The publisher's audio, whole | Stored and served from disk from then on. |
+| Episode longer than 2 h 20 min | The publisher's audio, whole, unexamined | Stored; no chapters or transcript are ever generated for it. |
+| Transcription or classification fails | The publisher's audio, whole | Nothing is kept; the next request does the work — and pays — again. |
+| Publisher download fails, or is not MP3 | An HTTP 502 | Nothing is kept; the next request tries the publisher again. |
+
+## Configuration and storage
+
+Compose reads these from `.env`:
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `PODCLEANER_BASE_URL` | Reachable address written into feed links | required |
+| `PODCLEANER_LLM_API_KEY` | OpenRouter key, for transcription and classification | required |
+| `PODCLEANER_PORT` | Published host port | `8080` |
+| `PODCLEANER_LLM_SPEC` | Classification model or cascade | `cascade:qwen/qwen3.7-flash>deepseek/deepseek-v4-flash` |
+
+A cascade is `cascade:screening-model>verifier-model`; a bare model id is one pass. The
+server's full configuration is in [the contract](docs/contract.md).
+
+Episodes live in the `episodes` volume at `/var/lib/podclean`, one directory each:
+
+```text
+<episode-key>/
+├── source.json       the publisher's audio URL and feed
+├── audio.mp3         what is served
+├── chapters.json     chapter marks on the served timeline
+├── transcript.vtt    transcript on the served timeline
+└── verdict.json      what was decided, and the removed intervals
+```
+
+Not every outcome writes every file: a failed run stores no audio, an episode too long to
+examine gets no chapters or transcript. Every episode a fetched feed has named gets a
+directory; a produced one is roughly the size of the original, and nothing deletes them.
+An episode once produced is never revisited — an improvement made later does not reach
+it. To have one produced again, delete its `audio.mp3`; the next request runs processing
+again.
+
+## HTTP endpoints
+
+You only ever paste the RSS URL; the feed carries the other links.
+
+| Endpoint | Returns |
+|---|---|
+| `/rss?feed=…` | The publisher's feed, byte for byte, with each episode's audio link — and its chapter and transcript links, where the feed declares the podcast namespace — pointing here. |
+| `/podcast?feed=…&guid=…` | The episode's MP3; produces it on the first request. `HEAD` and single byte ranges are answered. |
+| `/chapters?feed=…&guid=…` | Chapter marks as JSON. |
+| `/transcript?feed=…&guid=…` | Transcript as WebVTT. |
+
+Parameter values are URL-encoded; `guid` is the episode identifier from the feed. An
+episode can only be requested after it has appeared in a feed fetched through `/rss`.
+Chapters and transcript never start processing: they answer 404 until their file exists.
+
+## How results are checked
+
+Publishers who stitch advertising in serve the ad-free master to a plain HTTP client and
+the stitched copy to a podcatcher, and the stitched copy reuses the master's frames byte
+for byte. `./run verify` fetches both, walks them against each other to recover every
+inserted break exactly, and checks the intervals PodClean removed against them. It shares
+no code with the part that does the cutting.
 
 ```
 $ ./run verify https://feeds.lagedernation.org/feeds/ldn-mp3.xml 91b5c148-…
@@ -37,126 +235,57 @@ PROGRAMME INTACT   every removed interval lies inside a true ad
 ADVERTISING        90.960 s of 191.664 s removed (47.5%), 100.704 s still plays
 ```
 
-## The URLs
+It is a result for one downloaded copy: stitched advertising changes between downloads,
+so the seconds move between runs and the last line is what matters. If the publisher has
+re-stitched the episode since it was cut, the tool refuses to answer rather than compare
+against different bytes; if the publisher serves the same audio to both clients, there is
+nothing to measure and it says so. It reads the episode's directory from `var/episodes`,
+or from `PODCLEANER_STORE_ROOT` — point that at a copy or mount of the compose volume.
 
-| | |
-|---|---|
-| `GET /rss?feed=<publisher feed url>` | the publisher's feed, byte for byte, with three links per episode changed |
-| `GET /podcast?feed=…&guid=…` | the episode's audio, produced on the first play |
-| `GET /chapters?feed=…&guid=…` | chapter marks, timed against the audio this server serves |
-| `GET /transcript?feed=…&guid=…` | the transcript as WebVTT, on the same timeline |
+## Development
 
-**The feed** is the publisher's document with every episode's audio link, its chapter link
-and a transcript link pointing here, and nothing else changed — not the titles, not the
-show notes, not the encoding. Put the original links back, drop the ones this server
-added, and the two documents are identical. A feed that does not declare the podcast
-namespace gets no chapter or transcript links, and an episode whose identifier another
-episode shares keeps the publisher's link, because a link to the wrong episode is worse
-than none. A feed with no episode this server can address is a 502, not the document back
-unchanged.
-
-**The first play** of an episode takes a few minutes and costs a few cents, both rising
-with the episode's length. The connection is held until the file is whole; no partial file
-is ever sent. Once a decision has been reached, every play after that is instant and
-returns byte-identical audio: an episode is decided once, never re-examined, never
-re-billed. A paid step that fails on the way is not a decision: that play gets the
-publisher's own audio, nothing is kept, and the next play does the work — and pays —
-again. An episode no feed fetched here has named is 404, and no request goes out for it.
-A publisher that fails, or answers with something that is not audio, is a 502 and nothing
-is kept.
-
-**The chapter marks and the transcript** come out of the same pass that finds the
-advertising, so they cost no second reading. Both answer 404 until the episode has been
-produced, and asking for them never starts that work; an episode too long to examine never
-gets them. Every time in them is on the served timeline, moved earlier by exactly the
-audio removed before it. A chapter mark that fell inside a cut is dropped rather than
-moved to the join, and a transcript line that overlapped a cut is dropped whole rather
-than trimmed, so neither ever claims words that are not in the file. A cut episode
-carries the same marks inside the MP3 as well, because some podcatchers read those and
-ignore the feed's link.
-
-## What you get when you play it
-
-* The publisher's own audio, minus the advertising breaks. **A cut begins 1.5 s after
-  the break's first word and ends 1.5 s before the break's last cue ends**, so the join
-  lands inside advertising and you hear a moment of every break at each end. The join may
-  fall in the middle of a word; what is on both sides of it is advertising. The margin is
-  where an error of a word lands, and a word of advertising left in is an annoyance where
-  a word of programme removed is a loss.
-* A file shorter by exactly what was removed, to within one MP3 frame per cut: the cut
-  leaves whole frames out and re-encodes nothing.
-* A cut episode carries no cover art, even where the publisher's file had it; an episode
-  served whole keeps whatever the publisher's file carried.
-
-## What it does not do
-
-* **The show's own promotion is left in** — its live dates, its other podcast, its
-  outro. Only paid reads, host endorsements and trailers for other shows are cut.
-* **A few seconds of every break survive** at each edge, by the margin above. Where the
-  transcriber's cue runs a breath past the break, that breath comes out of the margin: the
-  margin is the room for it, and a cue that ran further past the break than the margin
-  would take programme.
-* **A break the model is not sure about is left in.** So is every break of a plan that is
-  not believable as a whole — one break implausibly long, or breaks adding up to an
-  implausible share of the episode — and the episode is then served untouched.
-* **Whole breaks are sometimes missed.**
-* **A dropped transcript line leaves a hole.** A line that overlapped a cut goes whole, so
-  a few seconds either side of each join have audio and no text.
-* **Chapter titles are the model's own** and can be wrong about what a passage is called.
-  Only the titles are a judgement; the times are arithmetic on what was removed. Where a
-  mark fell inside a cut, the stretch just after the join carries the previous chapter's
-  title, because moving the mark would stand an advertiser's name over the programme.
-* An episode longer than about two hours twenty is served untouched.
-* Once an episode has been produced it is never revisited, so an improvement made later
-  does not reach episodes already fetched. To have one produced again, delete its audio
-  file from its directory in the volume.
-
-## Run it
-
-Needs Docker and an [OpenRouter](https://openrouter.ai) token. Nothing else: the server
-has no ffmpeg, no database and no runtime dependencies.
+The server is Go; the suite and the tools are Python 3.11+. The suite starts the real
+binary and speaks to it over HTTP, with a local stub standing in for the publisher and
+the two paid APIs, so it needs no API key. It builds its own 73-minute episode and
+measures what comes back with an ffmpeg that shares no code with the server — the only
+thing to build besides the server itself:
 
 ```sh
-cp .env.example .env          # set PODCLEANER_BASE_URL and PODCLEANER_LLM_API_KEY
-docker compose up -d --build
+python3 -m venv .venv && .venv/bin/pip install -e '.[test]'
+
+docker build -t podclean-ffmpeg:ci - <<'DOCKERFILE'
+FROM debian:12-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+DOCKERFILE
+
+./run build
+PODCLEAN_TEST_FFMPEG_IMAGE=podclean-ffmpeg:ci ./run test
 ```
 
-Put a reverse proxy in front of it — the episodes you produce are yours, not the
-internet's — then paste `https://your-host/rss?feed=<the publisher's feed url>` into your
-podcatcher. Every episode in the feed, old ones included, comes through here on its first
-play from here; what your podcatcher already downloaded stays as it is.
+That is what [CI](.github/workflows/test.yml) runs on every pull request. The other
+commands:
 
-Every episode a fetched feed has named gets a directory in the compose volume; a produced
-one is roughly the size of the original. Nothing deletes them.
-
-## Working on it
-
-```
-python -m venv .venv && .venv/bin/pip install -e ".[test]"    # once: what ./run runs with
-./run test                      the suite, needs Docker
-./run build                     build the image the server runs in
-./run serve                     run it, in that image, on the host's network
+```text
+./run serve                     the server, in the image ./run build made, on the host's network
 ./run health [feed url]         is a ./run serve deployment working
-./run verify <feed> <guid>      was a cut right, against the publisher's ad-free master
+./run verify <feed> <guid>      was a cut right (above)
 ./run save                      green suite, then stage everything
 ```
 
-The suite knows the server only as a process on a port. It starts the real binary, points
-it at a local stub standing in for the publisher and the two paid endpoints, and asserts
-on what a listener gets. It builds its own 73-minute episode, decodes what comes back with
-an ffmpeg that shares no code with the server, and skips nothing. `PODCLEAN_SERVER_CMD=…`
-points it at a server in any other language. GitHub Actions runs it on every pull request.
+`./run serve` takes its configuration from exported `PODCLEANER_*` variables, not from
+`.env`, and stores episodes under `var/episodes`. `PODCLEAN_SERVER_CMD=…` points the suite
+at a server in any other language; the suite knows the server only as a process on a
+port.
 
-Two more documents: one is these promises as assertions, the other is what no listener
-can see.
+## Further reading
 
-* **[docs/requirements.md](docs/requirements.md)** — the promises above with every number
-  taken out, numbered, one line per thing a black-box test can assert, each naming the
-  test that asserts it or saying that none does yet.
-* **[docs/contract.md](docs/contract.md)** — what a re-implementation has to match: which
-  models, which endpoints, the words sent to them, what is written on disk, and the
-  constants that carry a policy.
+| Document | For |
+|---|---|
+| [docs/requirements.md](docs/requirements.md) | The promises above with every number taken out, numbered, each naming the test that asserts it. |
+| [docs/contract.md](docs/contract.md) | What a re-implementation has to match: models, endpoints, the words sent to them, what is written on disk, the constants that carry a policy. |
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+[MIT](LICENSE).
