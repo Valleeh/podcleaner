@@ -108,18 +108,33 @@ cut goes wrong in production but not in the suite. What the prompt must contain:
 * the answer schema below, and "answer with the JSON object only";
 * the five categories -- `sponsor_read`, `host_endorsement`, `cross_promo`, `self_promo`,
   `credits` -- each defined, because only the first three are ever cut and the model must
-  put a live-date plug in `self_promo` rather than in `sponsor_read`;
+  put a live-date plug in `self_promo` rather than in `sponsor_read`. `self_promo` has to
+  name **anything the same people make**, another podcast they publish included: a model
+  told only "a different show, whoever makes it" files the hosts' own second podcast under
+  `cross_promo` and cuts it;
 * **cue numbers, never timestamps** -- the mistake that has actually been seen, and the
   one `test_a_break_named_by_a_cue_the_transcript_never_had_is_left_in` exists for;
 * boundaries tight, from the break's first cue to its last, not the host's lead-in;
 * `first_words` and `last_words` copied **exactly**, three to six words, never
   paraphrased, quoting only the break's words where a cue holds both the host's sentence
   and the start of a break -- a quote that is not in the transcript makes the break
-  uncuttable, so paraphrase costs a cut;
+  uncuttable, so paraphrase costs a cut. This is not a style note and cannot be written as
+  one: it is a mechanical check, and it has to be stated as a count with the consequence
+  named and a worked example of a one-word quote being thrown away. Written as a
+  preference it is ignored -- thirteen of eighteen segments came back outside the window,
+  and that, not detection, was what left advertising in real episodes;
+* **where advertising hides**, and in particular that it very often follows the hosts'
+  goodbye. A model that stops reading at the sign-off reports no post-roll at all, which
+  was the largest single class of miss;
 * stacked ads are separate segments; hand-off and return phrases belong to the break;
 * confidence is an honest estimate that the run is promotional *and* its boundaries right;
 * 4 to 20 chapters over the editorial content, titled in the episode's language, under 60
   characters, never inside a run reported as promotional.
+
+How well a prompt does any of this is measurable rather than arguable: mark the
+advertising in a handful of episodes by hand, then count the breaks that survive every
+mechanical check above. The reasoning behind the current wording, and the two rules that
+were tried and made it worse, are recorded next to it in the code.
 
 The answer, one JSON object:
 
