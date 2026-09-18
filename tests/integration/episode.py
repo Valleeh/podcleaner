@@ -19,13 +19,15 @@ ones the way it would a publisher's, and the served audio is measured by decodin
 **A break never begins where a cue begins.**  This is the one property that makes the
 suite worth running, and it is the one a generated episode loses by accident: cues here
 are :data:`WORDS_PER_CUE` words long wherever that falls, so every break opens partway
-through a cue that starts with the hosts still talking, and closes partway through
-another.  A server that anchored a cut to the named cue's edges instead of to the words
-the model quoted -- which is what this one did until 2026-09-11, and it cost 5.2 s of
-programme on LdN -- then removes seconds of host speech, and the duration and chapter
-assertions go red.  With breaks laid on cue boundaries the two are the same number and
-nothing notices.  :func:`build` refuses to hand over an episode that has drifted back into
-alignment.
+through a cue that starts with the hosts still talking.  A server that began a cut at the
+named cue's start instead of at the words the model quoted would remove seconds of host
+speech before every break, and the duration and chapter assertions go red.  With breaks
+laid on cue boundaries the two are the same number and nothing notices.  :func:`build`
+refuses to hand over an episode that has drifted back into alignment.
+
+The other end is the cue's: a cut runs to the end of the last cue the model names, and
+every break here closes well before that cue does, so the number the suite expects tells
+a cut that ends where the cue ends from one that stopped at the break's last word.
 
 The geometry is the real episode's, to the hundredth of a second, because the tests turn
 on proportions rather than on content: the four breaks are 8.3% of the episode and have to
@@ -33,9 +35,9 @@ be cut, and a break claimed from the first advertisement to the last is 2503 s, 
 to be refused -- by the 600 s implausible-length rule first, and by the cap on the
 fraction of an episode that may be removed if it ever got past that.
 
-Imports nothing from the server: :data:`MARGIN_SECONDS` is read off ``docs/spec.md`` and
+Imports nothing from the server: :data:`MARGIN_SECONDS` is read off ``README.md`` and
 written again here, so a test can say what it expects without asking the server what it
-intends to do.  The server is Elixir; this is one of the places that used to name it.
+intends to do.
 """
 
 from __future__ import annotations
@@ -47,8 +49,8 @@ from typing import List, Sequence, Tuple
 
 from tests.integration.support import ffmpeg
 
-#: How much of a break stays audible at each end: `docs/spec.md`, "a cut begins 1.5 s
-#: after the break's first word and ends 1.5 s before its last".  Declared, not imported.
+#: How much of a break stays audible at each end: `README.md`, "a cut begins 1.5 s after
+#: the break's first word and ends 1.5 s before its last cue does".  Declared, not imported.
 #:
 #: What this suite measures is the seconds a cut removes, not which end the margin is
 #: taken from: a server that took both margins at the tail would remove the same length,
@@ -69,12 +71,13 @@ WORDS_PER_CUE = 13
 BITRATE_KBPS = 64
 
 #: How far inside its cue a break has to begin, and how far before its last cue ends it
-#: has to close -- each end on its own, because an edge is anchored on its own.  A cue
-#: opens before the break inside it and closes after it, so this is what a cut anchored to
-#: the cue would take that a cut anchored to the quoted words does not, and it has to be
-#: far more than the second the duration assertion allows, let alone the 0.05 s the
-#: chapter marks are held to.  A break can only be as deep as the episode in front of it:
-#: the pre-roll opens this one 1.55 s in, as it does the real one, and is held to that.
+#: has to close -- each end on its own, because each end is placed on its own.  At the
+#: head it is what a cut anchored to the cue would take that a cut anchored to the quoted
+#: words does not; at the tail it is what a cut ending where the cue ends removes that one
+#: stopping at the break's last word would not.  Either way it has to be far more than the
+#: second the duration assertion allows, let alone the 0.05 s the chapter marks are held
+#: to.  A break can only be as deep as the episode in front of it: the pre-roll opens this
+#: one 1.55 s in, as it does the real one, and is held to that.
 STRADDLE_SECONDS = 2.0
 
 #: A line of programme.  Its wording is asserted on: it is what proves the transcript the
@@ -137,11 +140,12 @@ class Cue:
 
 @dataclass(frozen=True)
 class Break:
-    """One advertising block, and the words a classifier would quote to name its edges.
+    """One advertising block, and what a classifier says to name it.
 
-    ``start`` and ``end`` are the first and last quoted words' own timings, which is what
-    a cut is anchored to.  ``first_cue`` and ``last_cue`` begin and end elsewhere: they
-    are the cues those words happen to fall in, and they hold programme too.
+    ``start`` is the first quoted word's own timing, which is what the cut's start is
+    placed on.  ``end`` is where the break's last cue ends: the cut runs to the end of the
+    cue the model names, not to the break's last word.  ``first_cue`` begins earlier than
+    the break and holds programme too.
     """
     category: str
     start: float
@@ -149,19 +153,35 @@ class Break:
     first_cue: int
     last_cue: int
     first_words: str
-    last_words: str
 
     @property
-    def cut_seconds(self) -> float:
-        """What is removed: the quoted words' span less :data:`MARGIN_SECONDS` an end."""
-        return (self.end - self.start) - 2 * MARGIN_SECONDS
+    def cut(self) -> Tuple[float, float]:
+        """What is removed: quoted word to cue's end, less :data:`MARGIN_SECONDS` an end."""
+        return self.start + MARGIN_SECONDS, self.end - MARGIN_SECONDS
 
     def as_segment(self, *, confidence: float = 0.95, reason: str = "") -> dict:
         """This break as the classifier reports it."""
         return {"start_cue": self.first_cue, "end_cue": self.last_cue,
                 "category": self.category, "confidence": confidence,
                 "reason": reason or f"{self.category} at {self.start:.0f}s",
-                "first_words": self.first_words, "last_words": self.last_words}
+                "first_words": self.first_words}
+
+
+def removed(breaks: Sequence[Break], before: float = float("inf")) -> float:
+    """The seconds the cuts for these breaks take out, counting only breaks that begin
+    before ``before``.
+
+    The union, not the sum: two reads back to back share a cue, so the first cut runs to
+    that cue's end and the second begins inside it, and what the listener loses is the
+    overlap once.
+    """
+    total, reach = 0.0, float("-inf")
+    for start, end in sorted(b.cut for b in breaks if b.start < before):
+        start = max(start, reach)
+        if end > start:
+            total += end - start
+            reach = end
+    return total
 
 
 @dataclass(frozen=True)
@@ -330,10 +350,9 @@ def build(directory: Path) -> Episode:
         _refuse_alignment(run, words, opens, closes)
 
         breaks.append(Break(
-            category=run.category, start=words[0].start, end=words[-1].end,
+            category=run.category, start=words[0].start, end=closes.end,
             first_cue=opens.number, last_cue=closes.number,
             first_words=" ".join(w.text for w in words[:3]),
-            last_words=" ".join(w.text for w in words[-3:]),
         ))
 
     # A mark the programme comes back on: the first cue that begins after a break is over,
@@ -354,18 +373,19 @@ def _refuse_alignment(run: Run, words: Sequence[Word], opens: Cue, closes: Cue) 
     """Fail the build if this break begins or ends where its cue does.
 
     Not a case that has to be imagined: the first version of this file laid one cue per
-    run, so every break sat exactly on cue boundaries and a cut anchored to the wrong one
-    of the two removed the same seconds as a cut anchored to the right one.  The suite
-    went green on a server that would have eaten the hosts' last sentence before every
-    break.  This is the invariant that was silently lost, so it is checked rather than
-    described.
+    run, so every break sat exactly on cue boundaries and a cut anchored to the cue's
+    start removed the same seconds as one anchored to the quoted word.  The suite went
+    green on a server that would have eaten the hosts' last sentence before every break.
+    This is the invariant that was silently lost, so it is checked rather than described.
 
-    Each end is checked on its own.  Summing them would let a break with its start exactly
-    on a cue boundary pass on the strength of its far end, and the start is the end the old
-    bug ate from.  What a break cannot have is more programme in front of it than the
-    episode holds, so the requirement at the head is the whole of what runs before the
-    break, up to :data:`STRADDLE_SECONDS` -- 1.55 s for the pre-roll, as in the real
-    episode, and the full margin for the other three.
+    Each end is checked on its own.  At the head, the room in front of the break is what a
+    cut anchored to the cue would take.  At the tail, the room after the break's last word
+    is what tells a cut that ends where the cue ends -- the promise -- from one that stops
+    at the last word.  Summing them would let one end pass on the strength of the other.
+    What a break cannot have is more programme in front of it than the episode holds, so
+    the requirement at the head is the whole of what runs before the break, up to
+    :data:`STRADDLE_SECONDS` -- 1.55 s for the pre-roll, as in the real episode, and the
+    full margin for the other three.
     """
     head, tail = words[0].start - opens.start, closes.end - words[-1].end
     wanted = min(STRADDLE_SECONDS, run.start)
@@ -377,20 +397,19 @@ def _refuse_alignment(run: Run, words: Sequence[Word], opens: Cue, closes: Cue) 
             f"quoted words would pass every test in this suite")
 
 
-def quote(words: Sequence[Word], *, from_end: bool = False) -> Tuple[str, Word, Word]:
+def quote(words: Sequence[Word]) -> Tuple[str, Word]:
     """Three consecutive words out of ``words`` that occur in them exactly once.
 
     The server refuses a quote it can find twice -- rightly -- and this episode is one line
     said over and over, so three words picked blindly are usually the same three words it
     said a minute earlier. Every saying carries a number at both ends, so a window that
-    covers one is unique; this walks until it finds such a window, from whichever end the
-    caller needs an edge at, and hands back the words it chose so the caller can say what
-    the cut should be.
+    covers one is unique; this walks from the front until it finds such a window, and
+    hands back the word the cut will be placed on so the caller can say what the cut
+    should be.
     """
     texts = [w.text for w in words]
-    windows = range(len(texts) - 3, -1, -1) if from_end else range(len(texts) - 2)
-    for at in windows:
+    for at in range(len(texts) - 2):
         window = texts[at:at + 3]
         if sum(window == texts[i:i + 3] for i in range(len(texts) - 2)) == 1:
-            return " ".join(window), words[at], words[at + 2]
+            return " ".join(window), words[at]
     raise AssertionError("no three consecutive words here occur only once")

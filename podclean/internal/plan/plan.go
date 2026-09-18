@@ -7,8 +7,8 @@
 // listener cannot detect and cannot undo.
 //
 // Every rule below fails in the same direction. A break that cannot be placed exactly is
-// left in; a plan that is not believable is dropped entire; an edge that cannot be found
-// is moved inward, never outward. An advertisement that survives is an annoyance. A
+// left in; a plan that is not believable is dropped entire; a start that cannot be found
+// is moved later, never earlier. An advertisement that survives is an annoyance. A
 // sentence that disappears is gone.
 package plan
 
@@ -25,13 +25,14 @@ import (
 )
 
 // margin is how much of a break stays audible at each of its ends: a cut begins this far
-// after the break's first word and ends this far before its last.
+// after the break's first word and ends this far before its last cue does.
 //
 // It is where an error of a word at either edge lands. The classifier may quote a word
-// early and the transcriber may stamp one late; both are ordinary, and both are harmless
-// as long as the error is smaller than the margin. A word of advertising left in is an
-// annoyance where a word of programme removed is a loss, so the margin is spent on the
-// side of leaving advertising in. A break shorter than two of them is not cut at all.
+// early, the transcriber may stamp one late, a cue may run a breath past the
+// advertisement it holds; all are ordinary, and all are harmless as long as the error is
+// smaller than the margin. A word of advertising left in is an annoyance where a word of
+// programme removed is a loss, so the margin is spent on the side of leaving advertising
+// in. A break shorter than two of them is not cut at all.
 const margin = 1.5
 
 // minConfidence is the model's own estimate, below which its segment is ignored.
@@ -67,7 +68,6 @@ type Segment struct {
 	Confidence float64 `json:"confidence"`
 	Reason     string  `json:"reason"`
 	FirstWords string  `json:"first_words"`
-	LastWords  string  `json:"last_words"`
 }
 
 // A Mark is one chapter the model proposed, by the cue it starts on.
@@ -138,9 +138,7 @@ func Build(t *transcript.Transcript, segments []Segment, seconds float64) Plan {
 			p.Refusals = append(p.Refusals, fmt.Sprintf("cues %d-%d: %v", s.StartCue, s.EndCue, err))
 			continue
 		}
-		if span.Seconds() > 0 {
-			p.Cuts = append(p.Cuts, span)
-		}
+		p.Cuts = append(p.Cuts, span)
 	}
 	p.Cuts = timeline.Merge(p.Cuts)
 
@@ -175,14 +173,21 @@ func implausible(cuts []timeline.Span, seconds float64) string {
 }
 
 // place turns one reported segment into the interval that will actually be removed.
+//
+// The start is the word the model quoted, found among the words of the cues it named; the
+// end is where the last of those cues ends. The two edges are guarded differently because
+// they fail differently. A transcriber's segment does not begin where an advertisement
+// does, so the cue that opens a break usually opens with the host still talking, and a
+// cut from the cue's start would take that sentence -- the start has to be placed on the
+// break's own first word. The cue that closes a break ends with it: in every recorded cut
+// the advertisement's last cue ended where the advertisement did, while the quote asked
+// for that end caused every refusal there was, so the end takes the cue's own bound.
 func place(t *transcript.Transcript, s Segment) (timeline.Span, error) {
 	// Both indices must exist and bound a complete range. A clamped or invented index is
-	// refused outright rather than narrowed: the range is what bounds where the quoted
-	// edges are looked for, and widening it past the transcript would let a quote place
-	// the cut wherever those words next occur, which can be a different part of the show
-	// entirely with programme on both sides of it.
-	first, ok := t.Cue(s.StartCue)
-	if !ok {
+	// refused outright rather than narrowed: the cut runs to the end of the last cue
+	// named, and clamping an index past the transcript to the last cue there is would run
+	// it to the end of the episode, programme and all.
+	if _, ok := t.Cue(s.StartCue); !ok {
 		return timeline.Span{}, fmt.Errorf("cue %d is not in the transcript", s.StartCue)
 	}
 	last, ok := t.Cue(s.EndCue)
@@ -193,38 +198,22 @@ func place(t *transcript.Transcript, s Segment) (timeline.Span, error) {
 		return timeline.Span{}, fmt.Errorf("cue %d ends before cue %d begins", s.EndCue, s.StartCue)
 	}
 
-	words := t.Words(s.StartCue, s.EndCue)
-	start, err := edge(words, s.FirstWords, atStart)
+	start, err := opening(t.Words(s.StartCue, s.EndCue), s.FirstWords)
 	if err != nil {
 		return timeline.Span{}, fmt.Errorf("first_words %q: %w", s.FirstWords, err)
 	}
-	end, err := edge(words, s.LastWords, atEnd)
-	if err != nil {
-		return timeline.Span{}, fmt.Errorf("last_words %q: %w", s.LastWords, err)
-	}
+	end := last.End
 
-	// Both edges have to land where the named cues are. A quote that matched somewhere
-	// implausible is a quote that matched the wrong words.
+	// A first word stamped past the last cue's end is the transcriber parking words at
+	// the far end of a hole it dropped, and is not a place to cut from.
 	if end <= start {
 		return timeline.Span{}, fmt.Errorf("the break ends at %.2f s before it starts at %.2f s", end, start)
 	}
-	if start < first.Start-margin || end > last.End+margin {
-		return timeline.Span{}, fmt.Errorf(
-			"%.2f s to %.2f s falls outside cues %d-%d (%.2f s to %.2f s)",
-			start, end, s.StartCue, s.EndCue, first.Start, last.End)
-	}
 	if end-start <= 2*margin {
-		return timeline.Span{}, nil // shorter than the two margins: nothing left to cut
+		return timeline.Span{}, fmt.Errorf("%.2f s to %.2f s is shorter than two margins", start, end)
 	}
 	return timeline.Span{Start: start + margin, End: end - margin}, nil
 }
-
-type end int
-
-const (
-	atStart end = iota
-	atEnd
-)
 
 // maxTokens is how much of a quote is matched on, and minTokens how little it may be
 // worn down to before the break is given up on.
@@ -240,22 +229,19 @@ const (
 var errNotFound = errors.New("not in the cues the segment names")
 var errAmbiguous = errors.New("matches more than one place in the cues the segment names")
 
-// edge finds where a quoted phrase is, and returns the moment the break begins or ends.
+// opening finds where the quoted first words are spoken, and returns the moment the break
+// begins.
 //
-// Every retry shortens the quote from its outer end, which moves the edge inward -- later
-// for a start, earlier for an end. So a quote the model got slightly wrong costs seconds
-// of advertising left in and can never cost a second of programme.
-func edge(words []transcript.Word, quote string, which end) (float64, error) {
+// Every retry drops the quote's first word, which moves the start later. So a quote the
+// model got slightly wrong costs seconds of advertising left in and can never cost a
+// second of programme.
+func opening(words []transcript.Word, quote string) (float64, error) {
 	tokens := normalise(quote)
 	if len(tokens) < minTokens {
 		return 0, fmt.Errorf("%w: %d words is too few to place an edge on", errNotFound, len(tokens))
 	}
 	if len(tokens) > maxTokens {
-		if which == atStart {
-			tokens = tokens[:maxTokens]
-		} else {
-			tokens = tokens[len(tokens)-maxTokens:]
-		}
+		tokens = tokens[:maxTokens]
 	}
 	spoken, said := spokenWords(words)
 	for len(tokens) >= minTokens {
@@ -264,16 +250,9 @@ func edge(words []transcript.Word, quote string, which end) (float64, error) {
 			return 0, errAmbiguous
 		}
 		if len(found) == 1 {
-			if which == atStart {
-				return spoken[found[0]].Start, nil
-			}
-			return spoken[found[0]+len(tokens)-1].End, nil
+			return spoken[found[0]].Start, nil
 		}
-		if which == atStart {
-			tokens = tokens[1:]
-		} else {
-			tokens = tokens[:len(tokens)-1]
-		}
+		tokens = tokens[1:]
 	}
 	return 0, errNotFound
 }

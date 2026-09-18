@@ -3,8 +3,8 @@
 Removes advertising from podcast episodes. Serves a rewritten RSS feed whose enclosure
 URLs point back here, and produces the ad-free audio when one is downloaded.
 
-**Current phase: MVP.** Read `docs/spec.md` first. It is the product as a listener meets
-it — the two URLs, what comes back, what the audio is guaranteed to be, and what it
+**Current phase: MVP.** Read `README.md` first. It is the product as a listener meets
+it — the URLs, what comes back, what the audio is guaranteed to be, and what it
 deliberately does not do — and **nothing in it names a module, a function or a
 constant**. That is the point: it stays true across a refactor, and it is checkable
 without reading the source. Where a constant needs a justification, that justification
@@ -12,13 +12,12 @@ lives next to the constant in the code, not in a document that has to be kept in
 
 `docs/requirements.md` is the same promises with every number taken out, numbered, one
 line per thing a black-box test can assert, each naming the test that asserts it. Write
-tests against that, not against the spec's prose.
+tests against that, not against the README's prose.
 
-`docs/contract.md` is the third document and the only one that names things: the facts a
-port has to match and no listener can see — which models, which endpoints, the words sent
-to them, what is written on disk, and the constants that carry a policy. It is what had to
-be read out of the Python to build the Elixir, and it is the whole of what the Go was
-built from -- written down so the next port need not read any source at all.
+`docs/contract.md` is the only document that names things: the facts a port has to match
+and no listener can see — which models, which endpoints, the words sent to them, what is
+written on disk, and the constants that carry a policy. The Go server was built from it
+and the suite alone, without reading the Elixir it replaced.
 
 ## Where things are
 
@@ -70,8 +69,8 @@ ruler, not about memory: the suite encodes the episode it plays and decodes what
 back, and another ffmpeg can lay those frames out differently, so CI would be measuring a
 file this host would never have made. (The Alpine OOM kill that used to justify the pin
 was the old Python cutter's, at 256 MB and still at 512 MB. Nothing re-encodes now, so
-that failure cannot recur — but do not take the pin out on those grounds.) All eighteen
-tests run there and nothing skips. `./run verify` stays host-only: it is the one thing
+that failure cannot recur — but do not take the pin out on those grounds.) Every test
+runs there and nothing skips. `./run verify` stays host-only: it is the one thing
 that still needs the commercial episode.
 `./run whisper`, `./run labels`, `./run ads` and `./run record` no longer exist: local
 whisper.cpp transcription was deleted (one paid API request now), and the hand-labelled

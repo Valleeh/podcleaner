@@ -127,10 +127,10 @@ func (t *Transcript) attach(words []Word) {
 //
 // A transcription reply does not agree with itself. Its segments stop while the words it
 // timed inside them keep going, and at the end of a file everything after the last segment
-// still belongs to the last cue that had started. A break anchored there is placed past
-// that cue's stated end, and the bound `plan` takes from that stated end then refuses a cut
-// that is perfectly correct: that is how the advertising at the end of two real episodes
-// survived on 2026-09-18, reported at 0.95 and at 1.0 confidence and thrown away twice.
+// still belongs to the last cue that had started. A cut ends where its last cue ends, so a
+// post-roll described that way would be cut short of its own words and most of it left
+// in: that is how the advertising at the end of two real episodes survived, reported at
+// 0.95 and at 1.0 confidence.
 //
 // The same disagreement anywhere else in the file means something entirely different, and
 // following it there would remove programme. When segments stop short in the middle, the
@@ -138,8 +138,8 @@ func (t *Transcript) attach(words []Word) {
 // of the hole. Measured in the one real reply this project keeps: ninety-four cues of two
 // hundred are stamped past their own end, four by more than ten seconds, the worst by
 // twenty-eight -- and the audio inside that gap is programme, unmentioned by any cue,
-// which is why nothing would have shown that it had gone. So those cues are left exactly
-// as the transcriber described them and the break that names one is refused.
+// which is why nothing would have shown that it had gone. So every other cue ends exactly
+// where the transcriber said it does, and a cut that ends on one stops there.
 //
 // A word that the aligner gave no duration at all is not a timing and is never followed.
 // That is what the four catastrophic cues above are made of -- 7 of 7, 11 of 11, 39 of 39
