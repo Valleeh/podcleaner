@@ -3,7 +3,7 @@
 # It runs the same command the host runs -- `./run test` -- so there is one command
 # surface and no second description of how the tests start that can drift from it.
 #
-# The whole suite runs here, all eighteen: the episode is built at the start of the run
+# The whole suite runs here, every test: the episode is built at the start of the run
 # rather than downloaded, so there is no fixture a runner can be missing.
 #
 # Two images, because there are two different things in this repository. `./run build`
