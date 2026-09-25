@@ -2,7 +2,6 @@ package episode
 
 import (
 	"encoding/json"
-	"fmt"
 	"math"
 	"strings"
 
@@ -97,9 +96,6 @@ func chaptersJSON(chapters []timeline.Chapter) []byte {
 	for _, c := range chapters {
 		doc.Chapters = append(doc.Chapters, entry{StartTime: round(c.At), Title: c.Title})
 	}
-	body, err := json.Marshal(doc)
-	if err != nil {
-		return []byte(fmt.Sprintf(`{"version":"1.2.0","chapters":[]}`))
-	}
+	body, _ := json.Marshal(doc) // floats and strings: it cannot fail
 	return body
 }

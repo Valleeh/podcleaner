@@ -97,16 +97,17 @@ func (c *Client) Audio(url string) ([]byte, error) {
 	return c.get(url, audioTimeout, http.Header{"User-Agent": {podcatcherUserAgent}})
 }
 
-// PublisherChapters is the publisher's own marks, where the feed named any.
+// PublisherChapters is the publisher's own marks, where the feed named any: url is nil or
+// empty when it did not.
 //
 // A courtesy and never a dependency: they are handed to the model as a starting point,
 // and anything at all going wrong here is silently no hint rather than a failure. The
 // episode is no worse off for it than one whose publisher wrote none.
-func (c *Client) PublisherChapters(url string) []timeline.Chapter {
-	if url == "" {
+func (c *Client) PublisherChapters(url *string) []timeline.Chapter {
+	if url == nil || *url == "" {
 		return nil
 	}
-	body, err := c.get(url, feedTimeout, nil)
+	body, err := c.get(*url, feedTimeout, nil)
 	if err != nil {
 		return nil
 	}

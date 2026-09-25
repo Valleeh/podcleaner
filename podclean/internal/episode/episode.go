@@ -25,7 +25,6 @@ import (
 	"podclean/internal/outside"
 	"podclean/internal/plan"
 	"podclean/internal/store"
-	"podclean/internal/timeline"
 	"podclean/internal/transcript"
 )
 
@@ -165,11 +164,8 @@ func (p *Producer) produce(source store.Source) outcome {
 	}
 	v.Cues = len(text.Cues)
 
-	var hints []timeline.Chapter
-	if source.ChaptersURL != nil {
-		hints = p.Outside.PublisherChapters(*source.ChaptersURL)
-	}
-	reply, err := classify.Task{Spec: p.Spec, Completer: p.Outside}.Run(hints, text.Render())
+	reply, err := classify.Task{Spec: p.Spec, Completer: p.Outside}.Run(
+		p.Outside.PublisherChapters(source.ChaptersURL), text.Render())
 	if err != nil {
 		return outcome{verdict: v, audio: raw, err: err}
 	}
