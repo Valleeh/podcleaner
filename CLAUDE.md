@@ -124,3 +124,17 @@ That is the failure mode this project has had three times. A requirement earns i
 by being one thing a black-box test can assert, with no number in its text.
 
 `gh` is authenticated on this host (as `Valleeh`) and pushing over SSH works.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues on `Valleeh/podcleaner`, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five default labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` and `docs/adr/` at the repo root, created as needed. See `docs/agents/domain.md`.
