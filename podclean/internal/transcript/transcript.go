@@ -36,18 +36,21 @@ type Transcript struct {
 	Cues []Cue
 }
 
-// A Piece is one transcription reply, still timed from its own beginning.
+// A Piece is one transcription reply, still timed from its own beginning, and where in
+// the episode that beginning is.
 type Piece struct {
+	start float64
 	cues  []Cue
 	words []Word
 }
 
-var ErrNotVerbose = errors.New("not a verbose_json transcription")
+var errNotVerbose = errors.New("not a verbose_json transcription")
 
-// Parse reads one reply. Both granularities are required: the segments become the
-// numbered cues the model answers about, and the words are what a cut is placed on, so a
-// reply carrying only segments is no use and is rejected rather than half used.
-func Parse(body []byte) (Piece, error) {
+// Parse reads one reply to the audio that begins start seconds into the episode. Both
+// granularities are required: the segments become the numbered cues the model answers
+// about, and the words are what a cut is placed on, so a reply carrying only segments is
+// no use and is rejected rather than half used.
+func Parse(body []byte, start float64) (Piece, error) {
 	var reply struct {
 		Segments []struct {
 			Start float64 `json:"start"`
@@ -61,13 +64,13 @@ func Parse(body []byte) (Piece, error) {
 		} `json:"words"`
 	}
 	if err := json.Unmarshal(body, &reply); err != nil {
-		return Piece{}, fmt.Errorf("%w: %v", ErrNotVerbose, err)
+		return Piece{}, fmt.Errorf("%w: %v", errNotVerbose, err)
 	}
 	if len(reply.Segments) == 0 || len(reply.Words) == 0 {
 		return Piece{}, fmt.Errorf("%w: %d segments, %d words",
-			ErrNotVerbose, len(reply.Segments), len(reply.Words))
+			errNotVerbose, len(reply.Segments), len(reply.Words))
 	}
-	p := Piece{}
+	p := Piece{start: start}
 	for _, s := range reply.Segments {
 		p.cues = append(p.cues, Cue{Start: s.Start, End: s.End, Text: strings.TrimSpace(s.Text)})
 	}
@@ -85,11 +88,11 @@ func Parse(body []byte) (Piece, error) {
 // every break after the first one in the wrong episode entirely.
 //
 // seconds is how long the audio is, and it is the only bound on the last cue below.
-func Join(pieces []Piece, starts []float64, seconds float64) *Transcript {
+func Join(pieces []Piece, seconds float64) *Transcript {
 	t := &Transcript{}
 	var words []Word
-	for i, p := range pieces {
-		at := starts[i]
+	for _, p := range pieces {
+		at := p.start
 		for _, c := range p.cues {
 			c.Start += at
 			c.End += at

@@ -182,22 +182,19 @@ func (p *Producer) produce(feed, guid string, source store.Source) (Audio, error
 
 // transcribe sends the episode up in pieces and puts the answers back on one timeline.
 func (p *Producer) transcribe(file *mp3.File) (*transcript.Transcript, error) {
-	pieces := file.Pieces(p.MaxBytes)
-	parsed := make([]transcript.Piece, 0, len(pieces))
-	starts := make([]float64, 0, len(pieces))
-	for _, piece := range pieces {
+	var parsed []transcript.Piece
+	for _, piece := range file.Pieces(p.MaxBytes) {
 		body, err := p.Outside.Transcribe(piece.Data)
 		if err != nil {
 			return nil, err
 		}
-		answer, err := transcript.Parse(body)
+		answer, err := transcript.Parse(body, piece.Start)
 		if err != nil {
 			return nil, err
 		}
 		parsed = append(parsed, answer)
-		starts = append(starts, piece.Start)
 	}
-	return transcript.Join(parsed, starts, file.Seconds()), nil
+	return transcript.Join(parsed, file.Seconds()), nil
 }
 
 // publish writes the audio first, the documents next and the verdict last: a verdict is
