@@ -11,17 +11,12 @@ import (
 	"strings"
 
 	"podclean/internal/plan"
+	"podclean/internal/timeline"
 )
 
 // A Completer is one model, asked one question.
 type Completer interface {
 	Complete(model, system, user string) (string, error)
-}
-
-// A Mark is one of the publisher's own chapter marks, handed to the model as a hint.
-type Mark struct {
-	At    float64
-	Title string
 }
 
 // A Task is one episode's classification, configured by PODCLEANER_LLM_SPEC.
@@ -30,8 +25,9 @@ type Task struct {
 	Completer Completer
 }
 
-// Run reads the episode: what is advertising in it, and where its chapters are.
-func (t Task) Run(publisher []Mark, rendered string) (plan.Reply, error) {
+// Run reads the episode: what is advertising in it, and where its chapters are. publisher
+// is the publisher's own chapter marks, handed to the model as a hint.
+func (t Task) Run(publisher []timeline.Chapter, rendered string) (plan.Reply, error) {
 	screens, verifier := models(t.Spec)
 
 	hint := publisherHint(publisher)
@@ -99,7 +95,7 @@ func models(spec string) (screens []string, verifier string) {
 // publisherHint is the publisher's own marks, where the feed named any, as a starting
 // point rather than an answer: they are timed against audio this server is about to make
 // shorter, and they are often wrong about where a break is.
-func publisherHint(marks []Mark) string {
+func publisherHint(marks []timeline.Chapter) string {
 	if len(marks) == 0 {
 		return ""
 	}

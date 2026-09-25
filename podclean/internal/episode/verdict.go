@@ -6,7 +6,6 @@ import (
 	"math"
 	"strings"
 
-	"podclean/internal/mp3"
 	"podclean/internal/plan"
 	"podclean/internal/timeline"
 )
@@ -34,7 +33,7 @@ type verdict struct {
 	DurationSeconds float64      `json:"duration_seconds"`
 	RemovedSeconds  float64      `json:"removed_seconds"`
 	Removed         [][2]float64 `json:"removed"`
-	Chapters        []mark       `json:"chapters"`
+	Chapters        [][2]any     `json:"chapters"` // [at, title], so the times read as a column
 
 	// SourceSHA256 is over the bytes that were fetched, bare lowercase hex. It is how
 	// `./run verify` notices that the publisher has re-stitched the episode since it was
@@ -49,17 +48,6 @@ type proposal struct {
 	EndCue     int     `json:"end_cue"`
 	Category   string  `json:"category"`
 	Confidence float64 `json:"confidence"`
-}
-
-// A mark is one chapter as a pair, [at, title], so that reading a verdict by eye shows
-// the times in a column.
-type mark struct {
-	At    float64
-	Title string
-}
-
-func (m mark) MarshalJSON() ([]byte, error) {
-	return json.Marshal([2]any{m.At, m.Title})
 }
 
 func proposed(segments []plan.Segment) []proposal {
@@ -79,18 +67,10 @@ func spans(in []timeline.Span) [][2]float64 {
 	return out
 }
 
-func marks(chapters []plan.Chapter) []mark {
-	out := make([]mark, 0, len(chapters))
+func marks(chapters []timeline.Chapter) [][2]any {
+	out := make([][2]any, 0, len(chapters))
 	for _, c := range chapters {
-		out = append(out, mark{At: round(c.At), Title: c.Title})
-	}
-	return out
-}
-
-func tagMarks(chapters []plan.Chapter) []mp3.Mark {
-	out := make([]mp3.Mark, 0, len(chapters))
-	for _, c := range chapters {
-		out = append(out, mp3.Mark{At: c.At, Title: c.Title})
+		out = append(out, [2]any{round(c.At), c.Title})
 	}
 	return out
 }
@@ -104,7 +84,7 @@ func errorOf(p plan.Plan) string {
 func round(seconds float64) float64 { return math.Round(seconds*1000) / 1000 }
 
 // chaptersJSON is the podcast namespace's own format. Seconds, not milliseconds.
-func chaptersJSON(chapters []plan.Chapter) []byte {
+func chaptersJSON(chapters []timeline.Chapter) []byte {
 	type entry struct {
 		StartTime float64 `json:"startTime"`
 		Title     string  `json:"title"`

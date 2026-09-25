@@ -17,6 +17,8 @@ import (
 	"net/textproto"
 	"strings"
 	"time"
+
+	"podclean/internal/timeline"
 )
 
 // podcatcherUserAgent is what the audio is asked for as, and it is not cosmetic.
@@ -100,24 +102,28 @@ func (c *Client) Audio(url string) ([]byte, error) {
 // A courtesy and never a dependency: they are handed to the model as a starting point,
 // and anything at all going wrong here is silently no hint rather than a failure. The
 // episode is no worse off for it than one whose publisher wrote none.
-func (c *Client) PublisherChapters(url string) []Chapter {
+func (c *Client) PublisherChapters(url string) []timeline.Chapter {
+	if url == "" {
+		return nil
+	}
 	body, err := c.get(url, feedTimeout, nil)
 	if err != nil {
 		return nil
 	}
 	var doc struct {
-		Chapters []Chapter `json:"chapters"`
+		Chapters []struct {
+			StartTime float64 `json:"startTime"`
+			Title     string  `json:"title"`
+		} `json:"chapters"`
 	}
 	if err := json.Unmarshal(body, &doc); err != nil {
 		return nil
 	}
-	return doc.Chapters
-}
-
-// A Chapter is one of the publisher's own marks.
-type Chapter struct {
-	StartTime float64 `json:"startTime"`
-	Title     string  `json:"title"`
+	marks := make([]timeline.Chapter, 0, len(doc.Chapters))
+	for _, c := range doc.Chapters {
+		marks = append(marks, timeline.Chapter{At: c.StartTime, Title: c.Title})
+	}
+	return marks
 }
 
 // Transcribe sends one piece of audio up and returns the reply's body.

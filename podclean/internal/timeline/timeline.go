@@ -44,9 +44,6 @@ type Timeline struct {
 	Removed []Span
 }
 
-// New takes the intervals a plan removes, in any order, and merges them.
-func New(removed []Span) Timeline { return Timeline{Removed: Merge(removed)} }
-
 // Total is how much audio is gone.
 func (t Timeline) Total() float64 {
 	var sum float64
@@ -94,4 +91,28 @@ func (t Timeline) At(at float64) float64 {
 		}
 	}
 	return moved
+}
+
+// A Chapter is one titled mark, on whichever timeline it was placed on.
+type Chapter struct {
+	At    float64
+	Title string
+}
+
+// Chapters is the marks as they fall on the served audio: a mark whose audio was removed
+// is dropped rather than moved to the join, and the rest move by exactly what was removed
+// before them.
+//
+// Dropped, because moving it would stand an advertiser's name over the programme that
+// follows the cut. The cost is that the stretch after a cut carries the title of the
+// chapter before it -- a title written for audio that is still there.
+func (t Timeline) Chapters(chapters []Chapter) []Chapter {
+	var out []Chapter
+	for _, c := range chapters {
+		if t.Holds(c.At) {
+			continue
+		}
+		out = append(out, Chapter{At: t.At(c.At), Title: c.Title})
+	}
+	return out
 }

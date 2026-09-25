@@ -25,6 +25,7 @@ import (
 	"podclean/internal/outside"
 	"podclean/internal/plan"
 	"podclean/internal/store"
+	"podclean/internal/timeline"
 	"podclean/internal/transcript"
 )
 
@@ -150,8 +151,11 @@ func (p *Producer) produce(feed, guid string, source store.Source) (Audio, error
 	}
 	v.Cues = len(text.Cues)
 
-	reply, err := classify.Task{Spec: p.Spec, Completer: p.Outside}.Run(
-		publisherMarks(p.Outside, source.ChaptersURL), text.Render())
+	var hints []timeline.Chapter
+	if source.ChaptersURL != nil {
+		hints = p.Outside.PublisherChapters(*source.ChaptersURL)
+	}
+	reply, err := classify.Task{Spec: p.Spec, Completer: p.Outside}.Run(hints, text.Render())
 	if err != nil {
 		return p.failedWithAudio(feed, guid, raw, v, err)
 	}
@@ -165,12 +169,12 @@ func (p *Producer) produce(feed, guid string, source store.Source) (Audio, error
 	v.Removed = spans(line.Removed)
 	v.RemovedSeconds = round(line.Total())
 
-	chapters := plan.Served(plan.Chapters(text, reply.Chapters), line)
+	chapters := line.Chapters(plan.Chapters(text, reply.Chapters))
 	v.Chapters = marks(chapters)
 
 	audio := raw
 	if decision.State == "cut" {
-		audio = append(mp3.ChapterTag(tagMarks(chapters), file.Seconds()-line.Total()),
+		audio = append(mp3.ChapterTag(chapters, file.Seconds()-line.Total()),
 			file.Cut(line)...)
 	}
 	return p.publish(feed, guid, audio, text.VTT(line), chapters, v)
@@ -196,21 +200,10 @@ func (p *Producer) transcribe(file *mp3.File) (*transcript.Transcript, error) {
 	return transcript.Join(parsed, starts, file.Seconds()), nil
 }
 
-func publisherMarks(client *outside.Client, url *string) []classify.Mark {
-	if url == nil || *url == "" {
-		return nil
-	}
-	var marks []classify.Mark
-	for _, c := range client.PublisherChapters(*url) {
-		marks = append(marks, classify.Mark{At: c.StartTime, Title: c.Title})
-	}
-	return marks
-}
-
 // publish writes the audio first, the documents next and the verdict last: a verdict is
 // the record that the work finished, so it must not exist before the work it describes.
 func (p *Producer) publish(feed, guid string, audio []byte, vtt string,
-	chapters []plan.Chapter, v verdict) (Audio, error) {
+	chapters []timeline.Chapter, v verdict) (Audio, error) {
 	if err := p.Store.Put(feed, guid, store.AudioFile, audio); err != nil {
 		return Audio{Bytes: audio}, nil
 	}

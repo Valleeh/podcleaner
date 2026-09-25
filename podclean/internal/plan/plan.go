@@ -313,44 +313,21 @@ func fold(s string) string {
 	return b.String()
 }
 
-// A Chapter is one mark placed on the publisher's timeline.
-type Chapter struct {
-	At    float64
-	Title string
-}
-
-// Chapters places the model's marks on the cues they name, in order.
+// Chapters places the model's marks on the cues they name, in order, on the publisher's
+// timeline.
 //
 // A mark naming a cue the transcript does not have is dropped and the rest are kept: a
 // chapter is a convenience, and unlike a cut a wrong one costs the listener nothing they
 // cannot see.
-func Chapters(t *transcript.Transcript, marks []Mark) []Chapter {
-	var out []Chapter
+func Chapters(t *transcript.Transcript, marks []Mark) []timeline.Chapter {
+	var out []timeline.Chapter
 	for _, m := range marks {
 		cue, ok := t.Cue(m.Cue)
 		if !ok || strings.TrimSpace(m.Title) == "" {
 			continue
 		}
-		out = append(out, Chapter{At: cue.Start, Title: strings.TrimSpace(m.Title)})
+		out = append(out, timeline.Chapter{At: cue.Start, Title: strings.TrimSpace(m.Title)})
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].At < out[j].At })
-	return out
-}
-
-// Served is the marks as they fall on the audio that was served: a mark whose audio was
-// removed is dropped rather than moved to the join, and the rest move by exactly what was
-// removed before them.
-//
-// Dropped, because moving it would stand an advertiser's name over the programme that
-// follows the cut. The cost is that the stretch after a cut carries the title of the
-// chapter before it -- a title written for audio that is still there.
-func Served(chapters []Chapter, tl timeline.Timeline) []Chapter {
-	var out []Chapter
-	for _, c := range chapters {
-		if tl.Holds(c.At) {
-			continue
-		}
-		out = append(out, Chapter{At: tl.At(c.At), Title: c.Title})
-	}
 	return out
 }
