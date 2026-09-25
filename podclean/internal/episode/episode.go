@@ -100,7 +100,7 @@ func (p *Producer) Play(feed, guid string) (Audio, error) {
 	if audio, ok := p.published(feed, guid); ok {
 		return audio, nil
 	}
-	return p.produce(feed, guid, source)
+	return p.finish(feed, guid, p.produce(source))
 }
 
 func (p *Producer) published(feed, guid string) (Audio, bool) {
@@ -110,16 +110,31 @@ func (p *Producer) published(feed, guid string) (Audio, bool) {
 	return Audio{Path: filepath.Join(p.Store.Root, store.Key(feed, guid), store.AudioFile)}, true
 }
 
-// produce is the pipeline itself.
-func (p *Producer) produce(feed, guid string, source store.Source) (Audio, error) {
+// An outcome is everything one run of the pipeline decided, before any of it is written.
+type outcome struct {
+	verdict verdict
+	audio   []byte // what the listener gets; nil when the publisher sent nothing usable
+
+	// The two sidecars, nil when nothing was read and so there is nothing this server
+	// could truthfully say about the episode.
+	chapters   []byte
+	transcript []byte
+
+	// err is a stage that did not finish. Nothing but the verdict is kept, so the next
+	// play does the work again.
+	err error
+}
+
+// produce is the pipeline itself: every stage, in order, and what each failure means.
+// It writes nothing; finish does.
+func (p *Producer) produce(source store.Source) outcome {
 	v := verdict{Schema: "podclean.verdict/1", State: "failed", ModelSpec: p.Spec}
 
 	// The publisher. A failure here is the one failure with no audio to fall back on, so
-	// it is the one the listener is told about -- and nothing is kept, so the next play
-	// asks the publisher again rather than remembering that it once broke.
+	// it is the one the listener is told about.
 	raw, err := p.Outside.Audio(source.URL)
 	if err != nil {
-		return p.failed(feed, guid, v, err)
+		return outcome{verdict: v, err: err}
 	}
 	sum := sha256.Sum256(raw)
 	v.SourceSHA256 = hex.EncodeToString(sum[:])
@@ -130,8 +145,8 @@ func (p *Producer) produce(feed, guid string, source store.Source) (Audio, error
 	// the cutter asks: do these bytes parse as MP3 frames?
 	file, err := mp3.Parse(raw)
 	if err != nil {
-		return p.failed(feed, guid, v, &outside.RemoteError{
-			Message: fmt.Sprintf("%s did not answer with audio: %v", source.URL, err)})
+		return outcome{verdict: v, err: &outside.RemoteError{
+			Message: fmt.Sprintf("%s did not answer with audio: %v", source.URL, err)}}
 	}
 	v.DurationSeconds = round(file.Seconds())
 
@@ -139,15 +154,14 @@ func (p *Producer) produce(feed, guid string, source store.Source) (Audio, error
 		v.State = "untouched"
 		v.Error = fmt.Sprintf("%.0f s is longer than the %d s this server will examine",
 			file.Seconds(), longestEpisode)
-		return p.publishUntouched(feed, guid, raw, v)
+		return outcome{verdict: v, audio: raw}
 	}
 
 	// Everything from here on has the episode in hand. A failure is answered with the
-	// publisher's own bytes and a 200, and remembered only as work that did not finish,
-	// so that the next play does it again.
+	// publisher's own bytes and a 200.
 	text, err := p.transcribe(file)
 	if err != nil {
-		return p.failedWithAudio(feed, guid, raw, v, err)
+		return outcome{verdict: v, audio: raw, err: err}
 	}
 	v.Cues = len(text.Cues)
 
@@ -157,7 +171,7 @@ func (p *Producer) produce(feed, guid string, source store.Source) (Audio, error
 	}
 	reply, err := classify.Task{Spec: p.Spec, Completer: p.Outside}.Run(hints, text.Render())
 	if err != nil {
-		return p.failedWithAudio(feed, guid, raw, v, err)
+		return outcome{verdict: v, audio: raw, err: err}
 	}
 	v.Proposed = proposed(reply.Segments)
 	v.ProposedCount = len(reply.Segments)
@@ -177,7 +191,8 @@ func (p *Producer) produce(feed, guid string, source store.Source) (Audio, error
 		audio = append(mp3.ChapterTag(chapters, file.Seconds()-line.Total()),
 			file.Cut(line)...)
 	}
-	return p.publish(feed, guid, audio, text.VTT(line), chapters, v)
+	return outcome{verdict: v, audio: audio,
+		chapters: chaptersJSON(chapters), transcript: []byte(text.VTT(line))}
 }
 
 // transcribe sends the episode up in pieces and puts the answers back on one timeline.
@@ -197,47 +212,35 @@ func (p *Producer) transcribe(file *mp3.File) (*transcript.Transcript, error) {
 	return transcript.Join(parsed, file.Seconds()), nil
 }
 
-// publish writes the audio first, the documents next and the verdict last: a verdict is
-// the record that the work finished, so it must not exist before the work it describes.
-func (p *Producer) publish(feed, guid string, audio []byte, vtt string,
-	chapters []timeline.Chapter, v verdict) (Audio, error) {
-	if err := p.Store.Put(feed, guid, store.AudioFile, audio); err != nil {
-		return Audio{Bytes: audio}, nil
+// finish writes an outcome down and says what the listener gets.
+//
+// The audio first, the sidecars next and the verdict last: a verdict is the record that
+// the work finished, so it must not exist before the work it describes. An outcome that
+// failed writes the verdict alone. With no audio the listener is told why; with the
+// publisher's audio in hand they get that, out of memory, and nothing is kept.
+func (p *Producer) finish(feed, guid string, o outcome) (Audio, error) {
+	if o.err != nil {
+		o.verdict.Error = o.err.Error()
+		p.record(feed, guid, o.verdict)
+		if o.audio == nil {
+			return Audio{}, o.err
+		}
+		log.Printf("episode=%s stage failed, serving the publisher's own audio: %v",
+			store.Key(feed, guid), o.err)
+		return Audio{Bytes: o.audio}, nil
 	}
-	_ = p.Store.Put(feed, guid, store.ChaptersFile, chaptersJSON(chapters))
-	_ = p.Store.Put(feed, guid, store.TranscriptFile, []byte(vtt))
-	p.record(feed, guid, v)
+	if err := p.Store.Put(feed, guid, store.AudioFile, o.audio); err != nil {
+		return Audio{Bytes: o.audio}, nil
+	}
+	if o.chapters != nil {
+		_ = p.Store.Put(feed, guid, store.ChaptersFile, o.chapters)
+	}
+	if o.transcript != nil {
+		_ = p.Store.Put(feed, guid, store.TranscriptFile, o.transcript)
+	}
+	p.record(feed, guid, o.verdict)
 	stored, _ := p.published(feed, guid)
 	return stored, nil
-}
-
-// publishUntouched keeps the publisher's audio and writes no documents: nothing was read,
-// so there is nothing this server could truthfully say about it.
-func (p *Producer) publishUntouched(feed, guid string, raw []byte, v verdict) (Audio, error) {
-	if err := p.Store.Put(feed, guid, store.AudioFile, raw); err != nil {
-		return Audio{Bytes: raw}, nil
-	}
-	p.record(feed, guid, v)
-	stored, _ := p.published(feed, guid)
-	return stored, nil
-}
-
-// failed is a stage that did not finish with nothing to serve: the listener is told.
-func (p *Producer) failed(feed, guid string, v verdict, err error) (Audio, error) {
-	v.Error = err.Error()
-	p.record(feed, guid, v)
-	return Audio{}, err
-}
-
-// failedWithAudio is a stage that did not finish after the episode was in hand: the
-// listener gets the publisher's own bytes, out of memory, and only the verdict is
-// written, so the next play does the work again.
-func (p *Producer) failedWithAudio(feed, guid string, raw []byte, v verdict, err error) (Audio, error) {
-	log.Printf("episode=%s stage failed, serving the publisher's own audio: %v",
-		store.Key(feed, guid), err)
-	v.Error = err.Error()
-	p.record(feed, guid, v)
-	return Audio{Bytes: raw}, nil
 }
 
 func (p *Producer) record(feed, guid string, v verdict) {
