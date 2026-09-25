@@ -1,5 +1,5 @@
-// Package plan turns what the model said into what may be removed, and is where the one
-// rule is enforced: no second of programme is ever removed.
+// Package plan turns what the model said, once classify has read it, into what may be
+// removed, and is where the one rule is enforced: no second of programme is ever removed.
 //
 // Nothing here talks to anyone. It is given a transcript and an answer and it returns
 // intervals, so every judgement it makes can be read in one file -- which matters more
@@ -13,13 +13,13 @@
 package plan
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"unicode"
 
+	"podclean/internal/classify"
 	"podclean/internal/timeline"
 	"podclean/internal/transcript"
 )
@@ -60,60 +60,6 @@ const mostOfAnEpisode = 0.2
 // been cut.
 var cuttable = map[string]bool{"sponsor_read": true, "host_endorsement": true, "cross_promo": true}
 
-// A Segment is one run the model reported as promotional.
-type Segment struct {
-	StartCue   int     `json:"start_cue"`
-	EndCue     int     `json:"end_cue"`
-	Category   string  `json:"category"`
-	Confidence float64 `json:"confidence"`
-	Reason     string  `json:"reason"`
-	FirstWords string  `json:"first_words"`
-}
-
-// A Mark is one chapter the model proposed, by the cue it starts on.
-type Mark struct {
-	Cue   int    `json:"cue"`
-	Title string `json:"title"`
-}
-
-// A Reply is one model's answer, read but not yet judged.
-type Reply struct {
-	Segments []Segment `json:"segments"`
-	Chapters []Mark    `json:"chapters"`
-}
-
-// ErrUnreadable is a reply this server cannot read. It is not a verdict about the audio:
-// the episode is served whole and the next play asks again.
-var ErrUnreadable = errors.New("unreadable model reply")
-
-// ParseReply reads one answer, allowing for a model that wrapped its JSON in a fence.
-func ParseReply(content string) (Reply, error) {
-	body := strings.TrimSpace(content)
-	if strings.HasPrefix(body, "```") {
-		body = strings.TrimPrefix(strings.TrimPrefix(body, "```json"), "```")
-		if end := strings.LastIndex(body, "```"); end >= 0 {
-			body = body[:end]
-		}
-		body = strings.TrimSpace(body)
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(body), &fields); err != nil {
-		return Reply{}, fmt.Errorf("%w: %v", ErrUnreadable, err)
-	}
-	segments, ok := fields["segments"]
-	if !ok {
-		return Reply{}, fmt.Errorf("%w: no segments in the answer", ErrUnreadable)
-	}
-	var reply Reply
-	if err := json.Unmarshal(segments, &reply.Segments); err != nil {
-		return Reply{}, fmt.Errorf("%w: %v", ErrUnreadable, err)
-	}
-	if chapters, ok := fields["chapters"]; ok {
-		_ = json.Unmarshal(chapters, &reply.Chapters) // a courtesy, never a dependency
-	}
-	return reply, nil
-}
-
 // A Plan is what will be done to one episode.
 type Plan struct {
 	State    string          // cut, clean or refused
@@ -125,7 +71,7 @@ type Plan struct {
 func (p Plan) Timeline() timeline.Timeline { return timeline.Timeline{Removed: p.Cuts} }
 
 // Build decides what may be removed from this episode, and nothing else.
-func Build(t *transcript.Transcript, segments []Segment, seconds float64) Plan {
+func Build(t *transcript.Transcript, segments []classify.Segment, seconds float64) Plan {
 	p := Plan{State: "clean"}
 	candidates := 0
 	for _, s := range segments {
@@ -182,7 +128,7 @@ func implausible(cuts []timeline.Span, seconds float64) string {
 // break's own first word. The cue that closes a break ends with it: in every recorded cut
 // the advertisement's last cue ended where the advertisement did, while the quote asked
 // for that end caused every refusal there was, so the end takes the cue's own bound.
-func place(t *transcript.Transcript, s Segment) (timeline.Span, error) {
+func place(t *transcript.Transcript, s classify.Segment) (timeline.Span, error) {
 	// Both indices must exist and bound a complete range. A clamped or invented index is
 	// refused outright rather than narrowed: the cut runs to the end of the last cue
 	// named, and clamping an index past the transcript to the last cue there is would run
@@ -319,7 +265,7 @@ func fold(s string) string {
 // A mark naming a cue the transcript does not have is dropped and the rest are kept: a
 // chapter is a convenience, and unlike a cut a wrong one costs the listener nothing they
 // cannot see.
-func Chapters(t *transcript.Transcript, marks []Mark) []timeline.Chapter {
+func Chapters(t *transcript.Transcript, marks []classify.Mark) []timeline.Chapter {
 	var out []timeline.Chapter
 	for _, m := range marks {
 		cue, ok := t.Cue(m.Cue)

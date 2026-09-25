@@ -6,6 +6,7 @@ import (
 	"math"
 	"strings"
 
+	"podclean/internal/classify"
 	"podclean/internal/plan"
 	"podclean/internal/timeline"
 )
@@ -50,7 +51,7 @@ type proposal struct {
 	Confidence float64 `json:"confidence"`
 }
 
-func proposed(segments []plan.Segment) []proposal {
+func proposed(segments []classify.Segment) []proposal {
 	out := make([]proposal, 0, len(segments))
 	for _, s := range segments {
 		out = append(out, proposal{StartCue: s.StartCue, EndCue: s.EndCue,

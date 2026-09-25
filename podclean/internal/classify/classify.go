@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"strings"
 
-	"podclean/internal/plan"
 	"podclean/internal/timeline"
 )
 
@@ -27,7 +26,7 @@ type Task struct {
 
 // Run reads the episode: what is advertising in it, and where its chapters are. publisher
 // is the publisher's own chapter marks, handed to the model as a hint.
-func (t Task) Run(publisher []timeline.Chapter, rendered string) (plan.Reply, error) {
+func (t Task) Run(publisher []timeline.Chapter, rendered string) (Reply, error) {
 	screens, verifier := models(t.Spec)
 
 	hint := publisherHint(publisher)
@@ -36,9 +35,9 @@ func (t Task) Run(publisher []timeline.Chapter, rendered string) (plan.Reply, er
 	}
 	content, err := t.Completer.Complete(verifier, prompt, join(hint, rendered))
 	if err != nil {
-		return plan.Reply{}, err
+		return Reply{}, err
 	}
-	return plan.ParseReply(content)
+	return parseReply(content)
 }
 
 // screen runs the first pass and lists what it found for the verifier.
@@ -54,7 +53,7 @@ func (t Task) screen(screens []string, hint, rendered string) string {
 		if err != nil {
 			continue
 		}
-		reply, err := plan.ParseReply(content)
+		reply, err := parseReply(content)
 		if err != nil {
 			continue
 		}
