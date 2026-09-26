@@ -3,13 +3,9 @@ package mp3
 import (
 	"encoding/binary"
 	"fmt"
-)
 
-// A Mark is one chapter on the served timeline.
-type Mark struct {
-	At    float64
-	Title string
-}
+	"podclean/internal/timeline"
+)
 
 // ChapterTag is an ID3v2.4 tag carrying the same marks the sidecar carries, to go ahead
 // of the frames of a cut episode.
@@ -19,7 +15,7 @@ type Mark struct {
 // twice, so the two cannot disagree. It is written only for an episode that was actually
 // cut: an untouched one keeps whatever the publisher's own file carried, which is already
 // right for audio nothing was removed from.
-func ChapterTag(marks []Mark, seconds float64) []byte {
+func ChapterTag(marks []timeline.Chapter, seconds float64) []byte {
 	if len(marks) == 0 {
 		return nil
 	}

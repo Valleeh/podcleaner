@@ -51,16 +51,13 @@ func Parse(data []byte) (*File, error) {
 		at += fr.Seconds
 	}
 	if at < minimumSeconds {
-		return nil, fmt.Errorf("%w: %d bytes parse as %.2f s of audio", ErrNotAudio, len(data), at)
+		return nil, fmt.Errorf("%w: %d bytes parse as %.2f s of audio", errNotAudio, len(data), at)
 	}
 	return f, nil
 }
 
-// ErrNotAudio is what the publisher sent failing to be an episode at all.
-var ErrNotAudio = errors.New("not audio")
-
-// Bytes is the file exactly as the publisher sent it.
-func (f *File) Bytes() []byte { return f.data }
+// errNotAudio is what the publisher sent failing to be an episode at all.
+var errNotAudio = errors.New("not audio")
 
 // Seconds is the episode's length: the sum of its frame durations, not anything a header
 // claims. A container's own duration field disagrees with the decoder by many seconds on
@@ -72,8 +69,6 @@ func (f *File) Seconds() float64 {
 	last := len(f.frames) - 1
 	return f.starts[last] + f.frames[last].Seconds
 }
-
-func (f *File) Frames() []Frame { return f.frames }
 
 // A Piece is a run of whole frames and where it begins in the episode.
 type Piece struct {

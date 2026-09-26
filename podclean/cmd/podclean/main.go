@@ -26,20 +26,17 @@ func main() {
 	if err := os.MkdirAll(files.Root, 0o755); err != nil {
 		log.Fatalf("cannot use %s as the store: %v", files.Root, err)
 	}
-	client := &outside.Client{
-		TranscribeBaseURL: config.TranscribeBaseURL(),
-		LLMBaseURL:        config.LLMBaseURL(),
-		APIKey:            config.APIKey(),
-	}
-	server := &web.Server{
-		Store:   files,
-		Outside: client,
-		Producer: &episode.Producer{
-			Store: files, Outside: client,
-			Spec: config.LLMSpec(), MaxBytes: config.TranscribeMaxBytes(),
+	server := &web.Server{Episodes: &episode.Orchestrator{
+		Store: files,
+		Outside: &outside.Client{
+			TranscribeBaseURL: config.TranscribeBaseURL(),
+			LLMBaseURL:        config.LLMBaseURL(),
+			APIKey:            config.APIKey(),
 		},
-		BaseURL: config.BaseURL(),
-	}
+		Spec:     config.LLMSpec(),
+		MaxBytes: config.TranscribeMaxBytes(),
+		BaseURL:  config.BaseURL(),
+	}}
 
 	address := net.JoinHostPort(config.Host(), config.Port())
 	log.Printf("podclean listening on %s, calling itself %s, storing in %s",

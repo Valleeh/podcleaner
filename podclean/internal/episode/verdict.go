@@ -1,13 +1,13 @@
 package episode
 
 import (
-	"encoding/json"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"strings"
 
-	"podclean/internal/mp3"
-	"podclean/internal/plan"
+	"podclean/internal/classify"
 	"podclean/internal/timeline"
 )
 
@@ -34,12 +34,50 @@ type verdict struct {
 	DurationSeconds float64      `json:"duration_seconds"`
 	RemovedSeconds  float64      `json:"removed_seconds"`
 	Removed         [][2]float64 `json:"removed"`
-	Chapters        []mark       `json:"chapters"`
+	Chapters        [][2]any     `json:"chapters"` // [at, title], so the times read as a column
 
 	// SourceSHA256 is over the bytes that were fetched, bare lowercase hex. It is how
 	// `./run verify` notices that the publisher has re-stitched the episode since it was
 	// cut, and refuses to report a number computed against different bytes.
 	SourceSHA256 string `json:"source_sha256"`
+}
+
+// verdictOf is the record of one run, read off the result once it is over. A field is
+// filled only if the stage that produces it was reached: a verdict written before the
+// model was asked says null for what the model would have said, not an empty list.
+func verdictOf(spec string, r result) verdict {
+	v := verdict{Schema: "podclean.verdict/1", State: "failed", ModelSpec: spec}
+	if r.raw != nil {
+		sum := sha256.Sum256(r.raw)
+		v.SourceSHA256 = hex.EncodeToString(sum[:])
+	}
+	if r.file != nil {
+		v.DurationSeconds = round(r.file.Seconds())
+	}
+	if r.text != nil {
+		v.Cues = len(r.text.Cues)
+	}
+	switch {
+	case r.err != nil:
+		v.Error = r.err.Error()
+		return v
+	case r.untouched:
+		v.State = "untouched"
+		v.Error = fmt.Sprintf("%.0f s is longer than the %d s this server will examine",
+			r.file.Seconds(), longestEpisode)
+		return v
+	}
+	v.Proposed = proposed(r.reply.Segments)
+	v.ProposedCount = len(r.reply.Segments)
+	v.State = r.plan.State
+	// Why the plan removed less than the model asked for, in one line. A refusal that
+	// leaves no trace is a refusal nobody can improve on.
+	v.Error = strings.Join(r.plan.Refusals, "; ")
+	line := r.plan.Timeline()
+	v.Removed = spans(line.Removed)
+	v.RemovedSeconds = round(line.Total())
+	v.Chapters = marks(r.chapters)
+	return v
 }
 
 // A proposal is one break as the model reported it, kept whether or not it was cut: when
@@ -51,18 +89,7 @@ type proposal struct {
 	Confidence float64 `json:"confidence"`
 }
 
-// A mark is one chapter as a pair, [at, title], so that reading a verdict by eye shows
-// the times in a column.
-type mark struct {
-	At    float64
-	Title string
-}
-
-func (m mark) MarshalJSON() ([]byte, error) {
-	return json.Marshal([2]any{m.At, m.Title})
-}
-
-func proposed(segments []plan.Segment) []proposal {
+func proposed(segments []classify.Segment) []proposal {
 	out := make([]proposal, 0, len(segments))
 	for _, s := range segments {
 		out = append(out, proposal{StartCue: s.StartCue, EndCue: s.EndCue,
@@ -79,46 +106,12 @@ func spans(in []timeline.Span) [][2]float64 {
 	return out
 }
 
-func marks(chapters []plan.Chapter) []mark {
-	out := make([]mark, 0, len(chapters))
+func marks(chapters []timeline.Chapter) [][2]any {
+	out := make([][2]any, 0, len(chapters))
 	for _, c := range chapters {
-		out = append(out, mark{At: round(c.At), Title: c.Title})
+		out = append(out, [2]any{round(c.At), c.Title})
 	}
 	return out
-}
-
-func tagMarks(chapters []plan.Chapter) []mp3.Mark {
-	out := make([]mp3.Mark, 0, len(chapters))
-	for _, c := range chapters {
-		out = append(out, mp3.Mark{At: c.At, Title: c.Title})
-	}
-	return out
-}
-
-// errorOf is why a plan removed less than the model asked for, in one line. A refusal
-// that leaves no trace is a refusal nobody can improve on.
-func errorOf(p plan.Plan) string {
-	return strings.Join(p.Refusals, "; ")
 }
 
 func round(seconds float64) float64 { return math.Round(seconds*1000) / 1000 }
-
-// chaptersJSON is the podcast namespace's own format. Seconds, not milliseconds.
-func chaptersJSON(chapters []plan.Chapter) []byte {
-	type entry struct {
-		StartTime float64 `json:"startTime"`
-		Title     string  `json:"title"`
-	}
-	doc := struct {
-		Version  string  `json:"version"`
-		Chapters []entry `json:"chapters"`
-	}{Version: "1.2.0", Chapters: make([]entry, 0, len(chapters))}
-	for _, c := range chapters {
-		doc.Chapters = append(doc.Chapters, entry{StartTime: round(c.At), Title: c.Title})
-	}
-	body, err := json.Marshal(doc)
-	if err != nil {
-		return []byte(fmt.Sprintf(`{"version":"1.2.0","chapters":[]}`))
-	}
-	return body
-}
