@@ -21,6 +21,7 @@ import (
 	"sync"
 
 	"podclean/internal/classify"
+	"podclean/internal/feed"
 	"podclean/internal/mp3"
 	"podclean/internal/outside"
 	"podclean/internal/plan"
@@ -37,12 +38,14 @@ const longestEpisode = 8400
 // ErrUnknown is a (feed, episode) pair no feed fetched by this server has ever named.
 var ErrUnknown = errors.New("unknown episode")
 
-// A Producer makes episodes, one at a time.
-type Producer struct {
+// An Orchestrator is everything the webserver asks for: a feed rewritten, an episode's
+// audio, its two sidecars. It decides when the pipeline runs and keeps what it made.
+type Orchestrator struct {
 	Store    store.Store
 	Outside  *outside.Client
 	Spec     string
 	MaxBytes int
+	BaseURL  string // what the server calls itself in the links it writes into a feed
 
 	// Production is taken under one lock for the whole server, not one per episode. An
 	// episode is tens of megabytes held in memory and a transcription of the whole thing;
@@ -79,10 +82,42 @@ type nopCloser struct{ io.ReadSeeker }
 
 func (nopCloser) Close() error { return nil }
 
+// Feed is the publisher's feed with its links repointed here. Reading a feed is also the
+// only thing that makes its episodes playable: an episode is addressable because a feed
+// this server fetched named it, never because somebody asked for it.
+func (p *Orchestrator) Feed(url string) ([]byte, error) {
+	document, err := p.Outside.Feed(url)
+	if err != nil {
+		return nil, err
+	}
+	rewritten, episodes, err := feed.Rewrite(document, url, p.BaseURL)
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range episodes {
+		if err := p.Store.PutSource(url, e.GUID, store.Source{
+			URL: e.Enclosure, Feed: url, ChaptersURL: e.ChaptersURL}); err != nil {
+			log.Printf("feed=%s guid=%s cannot record the episode: %v", url, e.GUID, err)
+		}
+	}
+	return rewritten, nil
+}
+
+// Chapters and Transcript are the two sidecars, once the episode has been produced.
+// Neither ever starts the pipeline: a route a crawler can reach must never begin a paid,
+// minutes-long run, and a document that describes a cut cannot exist before the cut does.
+func (p *Orchestrator) Chapters(feed, guid string) ([]byte, bool) {
+	return p.Store.Read(feed, guid, store.ChaptersFile)
+}
+
+func (p *Orchestrator) Transcript(feed, guid string) ([]byte, bool) {
+	return p.Store.Read(feed, guid, store.TranscriptFile)
+}
+
 // Play is the audio for one episode, producing it if this is the first time it is asked
 // for. The connection is held until the audio is whole: there is no state in which a
 // listener receives half an episode.
-func (p *Producer) Play(feed, guid string) (Audio, error) {
+func (p *Orchestrator) Play(feed, guid string) (Audio, error) {
 	source, ok := p.Store.Source(feed, guid)
 	if !ok {
 		return Audio{}, ErrUnknown
@@ -102,7 +137,7 @@ func (p *Producer) Play(feed, guid string) (Audio, error) {
 	return p.finish(feed, guid, p.produce(source))
 }
 
-func (p *Producer) published(feed, guid string) (Audio, bool) {
+func (p *Orchestrator) published(feed, guid string) (Audio, bool) {
 	if !p.Store.Has(feed, guid, store.AudioFile) {
 		return Audio{}, false
 	}
@@ -126,7 +161,7 @@ type outcome struct {
 
 // produce is the pipeline itself: every stage, in order, and what each failure means.
 // It writes nothing; finish does.
-func (p *Producer) produce(source store.Source) outcome {
+func (p *Orchestrator) produce(source store.Source) outcome {
 	v := verdict{Schema: "podclean.verdict/1", State: "failed", ModelSpec: p.Spec}
 
 	// The publisher. A failure here is the one failure with no audio to fall back on, so
@@ -192,7 +227,7 @@ func (p *Producer) produce(source store.Source) outcome {
 }
 
 // transcribe sends the episode up in pieces and puts the answers back on one timeline.
-func (p *Producer) transcribe(file *mp3.File) (*transcript.Transcript, error) {
+func (p *Orchestrator) transcribe(file *mp3.File) (*transcript.Transcript, error) {
 	var parsed []transcript.Piece
 	for _, piece := range file.Pieces(p.MaxBytes) {
 		body, err := p.Outside.Transcribe(piece.Data)
@@ -214,7 +249,7 @@ func (p *Producer) transcribe(file *mp3.File) (*transcript.Transcript, error) {
 // the work finished, so it must not exist before the work it describes. An outcome that
 // failed writes the verdict alone. With no audio the listener is told why; with the
 // publisher's audio in hand they get that, out of memory, and nothing is kept.
-func (p *Producer) finish(feed, guid string, o outcome) (Audio, error) {
+func (p *Orchestrator) finish(feed, guid string, o outcome) (Audio, error) {
 	if o.err != nil {
 		o.verdict.Error = o.err.Error()
 		p.record(feed, guid, o.verdict)
@@ -239,7 +274,7 @@ func (p *Producer) finish(feed, guid string, o outcome) (Audio, error) {
 	return stored, nil
 }
 
-func (p *Producer) record(feed, guid string, v verdict) {
+func (p *Orchestrator) record(feed, guid string, v verdict) {
 	body, err := json.Marshal(v)
 	if err != nil {
 		return

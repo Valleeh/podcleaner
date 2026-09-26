@@ -18,9 +18,6 @@ import (
 	"strings"
 
 	"podclean/internal/episode"
-	"podclean/internal/feed"
-	"podclean/internal/outside"
-	"podclean/internal/store"
 )
 
 // The two error bodies worth keeping recognisable: each answers the question its reader
@@ -30,48 +27,32 @@ const (
 	notProducedYet = "not produced yet: written when the episode is first played"
 )
 
-// A Server is the routes, the store they read and the producer they wait on.
+// A Server is the routes and the orchestrator each of them asks.
 type Server struct {
-	Store    store.Store
-	Outside  *outside.Client
-	Producer *episode.Producer
-	BaseURL  string
+	Episodes *episode.Orchestrator
 }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/rss", s.rss)
 	mux.HandleFunc("/podcast", s.podcast)
-	mux.HandleFunc("/chapters", s.sidecar(store.ChaptersFile, "application/json+chapters"))
-	mux.HandleFunc("/transcript", s.sidecar(store.TranscriptFile, "text/vtt"))
+	mux.HandleFunc("/chapters", sidecar(s.Episodes.Chapters, "application/json+chapters"))
+	mux.HandleFunc("/transcript", sidecar(s.Episodes.Transcript, "text/vtt"))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { text(w, r, 404, "not here") })
 	return logging(mux)
 }
 
-// rss is the publisher's feed with its links repointed here. Reading a feed is also the
-// only thing that makes its episodes playable: an episode is addressable because a feed
-// this server fetched named it, never because somebody asked for it.
+// rss is the publisher's feed with its links repointed here.
 func (s *Server) rss(w http.ResponseWriter, r *http.Request) {
 	url := strings.TrimSpace(r.URL.Query().Get("feed"))
 	if url == "" {
 		text(w, r, http.StatusBadRequest, "ask for a feed: /rss?feed=<the publisher's feed url>")
 		return
 	}
-	document, err := s.Outside.Feed(url)
+	rewritten, err := s.Episodes.Feed(url)
 	if err != nil {
 		text(w, r, http.StatusBadGateway, err.Error())
 		return
-	}
-	rewritten, episodes, err := feed.Rewrite(document, url, s.BaseURL)
-	if err != nil {
-		text(w, r, http.StatusBadGateway, err.Error())
-		return
-	}
-	for _, e := range episodes {
-		if err := s.Store.PutSource(url, e.GUID, store.Source{
-			URL: e.Enclosure, Feed: url, ChaptersURL: e.ChaptersURL}); err != nil {
-			log.Printf("feed=%s guid=%s cannot record the episode: %v", url, e.GUID, err)
-		}
 	}
 	w.Header().Set("Content-Type", "application/rss+xml")
 	body(w, r, http.StatusOK, rewritten)
@@ -83,7 +64,7 @@ func (s *Server) podcast(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	audio, err := s.Producer.Play(feedURL, guid)
+	audio, err := s.Episodes.Play(feedURL, guid)
 	switch {
 	case errors.Is(err, episode.ErrUnknown):
 		text(w, r, http.StatusNotFound, unknownEpisode)
@@ -105,17 +86,13 @@ func (s *Server) podcast(w http.ResponseWriter, r *http.Request) {
 }
 
 // sidecar serves one of the two documents about an episode, once there is an episode.
-//
-// Neither ever starts the work that would make one: a route a crawler can reach must
-// never begin a paid, minutes-long pipeline, and a document that describes a cut cannot
-// honestly exist before the cut does.
-func (s *Server) sidecar(name, contentType string) http.HandlerFunc {
+func sidecar(read func(feed, guid string) ([]byte, bool), contentType string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		feedURL, guid, ok := pair(w, r)
 		if !ok {
 			return
 		}
-		document, found := s.Store.Read(feedURL, guid, name)
+		document, found := read(feedURL, guid)
 		if !found {
 			text(w, r, http.StatusNotFound, notProducedYet)
 			return
