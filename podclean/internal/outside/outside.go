@@ -45,27 +45,19 @@ type Client struct {
 	APIKey            string
 }
 
-// http returns a client that does not negotiate content encoding.
+// send makes one request and returns the body of a 200, or an error naming the url.
 //
-// The bytes fetched are hashed and recorded, and `./run verify` re-fetches them later to
-// notice that the publisher has re-stitched the episode. A transport that transparently
-// gzipped and ungzipped a download would hand back bytes nobody ever sent.
-func (c *Client) http(timeout time.Duration) *http.Client {
-	return &http.Client{
+// The client does not negotiate content encoding. The bytes fetched are hashed and
+// recorded, and `./run verify` re-fetches them later to notice that the publisher has
+// re-stitched the episode. A transport that transparently gzipped and ungzipped a
+// download would hand back bytes nobody ever sent.
+func send(req *http.Request, timeout time.Duration) ([]byte, error) {
+	client := &http.Client{
 		Timeout:   timeout,
 		Transport: &http.Transport{DisableCompression: true},
 	}
-}
-
-func (c *Client) get(url string, timeout time.Duration, header http.Header) ([]byte, error) {
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("cannot ask for %s: %v", url, err)
-	}
-	for name, values := range header {
-		req.Header[name] = values
-	}
-	resp, err := c.http(timeout).Do(req)
+	url := req.URL.String()
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %v", url, err)
 	}
@@ -79,6 +71,17 @@ func (c *Client) get(url string, timeout time.Duration, header http.Header) ([]b
 			url, resp.StatusCode, first200(body))
 	}
 	return body, nil
+}
+
+func (c *Client) get(url string, timeout time.Duration, header http.Header) ([]byte, error) {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("cannot ask for %s: %v", url, err)
+	}
+	for name, values := range header {
+		req.Header[name] = values
+	}
+	return send(req, timeout)
 }
 
 // Feed fetches the publisher's document.
@@ -198,20 +201,7 @@ func (c *Client) post(url, contentType string, body []byte) ([]byte, error) {
 	if c.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+c.APIKey)
 	}
-	resp, err := c.http(paidTimeout).Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %v", url, err)
-	}
-	defer resp.Body.Close()
-	answer, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %v", url, err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s answered %d: %s",
-			url, resp.StatusCode, first200(answer))
-	}
-	return answer, nil
+	return send(req, paidTimeout)
 }
 
 // first200 is as much of somebody else's failure as is worth repeating.

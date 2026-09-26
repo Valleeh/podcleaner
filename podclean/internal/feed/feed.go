@@ -61,7 +61,7 @@ func Rewrite(document []byte, feedURL, base string) ([]byte, []Episode, error) {
 		}
 	}
 
-	out := replaceAll(doc, itemPattern, func(item string) string {
+	out := itemPattern.ReplaceAllStringFunc(doc, func(item string) string {
 		guid, ok := guidOf(item)
 		// Left exactly as the publisher wrote it: an item with no name, no audio, or a
 		// name another item in the same feed also carries. A link that resolves to the
@@ -172,7 +172,7 @@ func attr(tag string, pattern *regexp.Regexp) (string, bool) {
 func setAttr(tag string, pattern *regexp.Regexp, name, value string) string {
 	written := fmt.Sprintf(`%s="%s"`, name, value)
 	if pattern.MatchString(tag) {
-		return replaceAll(tag, pattern, func(string) string { return written })
+		return pattern.ReplaceAllStringFunc(tag, func(string) string { return written })
 	}
 	body, closer := strings.TrimSuffix(tag, ">"), ">"
 	if trimmed, selfClosing := strings.CutSuffix(body, "/"); selfClosing {
@@ -186,11 +186,4 @@ func setAttr(tag string, pattern *regexp.Regexp, name, value string) string {
 func unescape(value string) string {
 	return strings.NewReplacer("&amp;", "&", "&lt;", "<", "&gt;", ">",
 		"&quot;", `"`, "&apos;", "'").Replace(value)
-}
-
-// replaceAll is ReplaceAllStringFunc, which is the one piece of the standard library this
-// file could not do without: it hands back each match to be rewritten and copies
-// everything between them untouched, which is exactly the promise.
-func replaceAll(s string, pattern *regexp.Regexp, with func(string) string) string {
-	return pattern.ReplaceAllStringFunc(s, with)
 }

@@ -1,6 +1,6 @@
 """What the routes answer when there is nothing to serve yet, and when the publisher breaks.
 
-Needs no audio and no fixtures.  Every promise here is about a route refusing to do work:
+Nothing here plays an episode.  Every promise here is about a route refusing to do work:
 the two sidecars describe audio that does not exist yet, an episode nobody named cannot be
 fetched, and a publisher that fails must not leave anything frozen behind.
 

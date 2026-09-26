@@ -79,8 +79,7 @@ def ffmpeg(args: list, *, reads: Path | None = None, writes: Path | None = None)
 
     ``reads`` is mounted read-only at ``/in`` and ``writes`` at ``/out``; a command refers
     to them as ``/in/<name>`` and, for the output, not at all -- it is appended.  The
-    container gets no network and a memory limit, as the server's own calls do: this
-    suite must not be the reason the host runs out of memory.
+    container gets no network and a memory limit: this suite must not be the reason the host runs out of memory.
     """
     cmd = ["docker", "run", "--rm", "--memory=256m", "--network=none",
            "--user", f"{os.getuid()}:{os.getgid()}", "--entrypoint", "ffmpeg"]
@@ -180,9 +179,9 @@ class Outside:
         if refuses_over is not None:
             self.limits[path] = refuses_over
 
-    def fails(self, path: str, *, status: int = 500) -> None:
+    def fails(self, path: str) -> None:
         """Answer this path with an error, for the promise about a publisher that breaks."""
-        self.serves(path, "text/plain", b"the publisher is having a bad day", status=status)
+        self.serves(path, "text/plain", b"the publisher is having a bad day", status=500)
 
     def _handler(self):
         outside = self
@@ -258,14 +257,15 @@ def podclean_server(outside: Outside, tmp_path: Path, **extra_env: str):
         proc.wait()  # reap it here rather than leave a zombie for the rest of the session
 
 
-def _wait_until_listening(proc: subprocess.Popen, url: str, *, attempts: int = 50) -> None:
+def _wait_until_listening(proc: subprocess.Popen, url: str) -> None:
     """Block until the server answers on ``url``, or say why it never will.
 
-    Both failures name themselves.  A server that died is not a server that is slow:
-    ``make_server`` raises on a port already bound and the process exits non-zero, which is
-    also how the window between this test choosing a port and the subprocess binding it
-    shows up if something else takes it first.
+    Both failures name themselves.  A server that died is not a server that is slow: one
+    that cannot bind a port already taken exits non-zero, which is also how the window
+    between this test choosing a port and the subprocess binding it shows up if something
+    else takes it first.
     """
+    attempts = 50
     for _ in range(attempts):
         if proc.poll() is not None:
             raise RuntimeError(
