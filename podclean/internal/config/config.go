@@ -1,4 +1,4 @@
-// Package config is the nine environment variables, read at use.
+// Package config is the ten environment variables, read at use.
 //
 // There is no configuration file and no struct passed around: a value is read when it is
 // wanted, so that a deployment changes by restarting with a different environment and by

@@ -13,7 +13,7 @@ def episode(tmp_path_factory):
     """The episode the audio tests play, built once for the whole run.
 
     Session-scoped because ffmpeg takes about fifteen seconds over it and no test alters
-    it: the five that play one play the same one, as five listeners would.
+    it: every test that plays one plays the same one, as many listeners would.
     """
     return build(tmp_path_factory.mktemp("episode"))
 

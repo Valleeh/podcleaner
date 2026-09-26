@@ -20,9 +20,9 @@ import (
 // is a decision, and a decision is not revisited, so an improvement made later does not
 // reach an episode already produced.
 //
-// Three of these names are read by programs outside this one: `tools/health.py` reads
-// state, and `tools/verify.py` reads removed, removed_seconds and source_sha256. Renaming
-// one of those breaks a tool rather than the server, which is the harder failure to see.
+// Four of these names are read by programs outside this one: `tools/health.py` reads
+// state and removed_seconds, and `tools/verify.py` reads those two, removed and
+// source_sha256. Renaming one of those breaks a tool rather than the server, which is the harder failure to see.
 type verdict struct {
 	Schema          string       `json:"schema"`
 	State           string       `json:"state"`

@@ -1,7 +1,6 @@
 """What a podcatcher gets when it subscribes.
 
-Needs no audio and no fixtures: nothing here plays an episode, so these run on a machine
-that has never downloaded a minute of commercial content.
+Nothing here plays an episode.
 
 The promise under test is `docs/requirements.md`, "Subscribing": the feed returned is the
 publisher's with links changed and nothing else.  That is checked by putting the links

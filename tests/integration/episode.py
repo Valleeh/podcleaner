@@ -328,8 +328,8 @@ def _reply(cues: Sequence[Cue], seconds: float) -> bytes:
 def build(directory: Path) -> Episode:
     """Write the episode into ``directory`` and say what is in it.
 
-    The audio is silence at a podcast's bitrate, encoded by the same ffmpeg that will cut
-    it.  It takes about fifteen seconds, so build it once for a run, not once per test.
+    The audio is silence at a podcast's bitrate, encoded by the same ffmpeg that later
+    measures what came back.  It takes about fifteen seconds, so build it once for a run, not once per test.
     """
     spoken = _words()
     cues = _cues(spoken)

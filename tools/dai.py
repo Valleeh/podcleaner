@@ -11,21 +11,12 @@ because we can see the splice.
 That makes this the highest-grade ground truth available for real episodes: exact to
 one MP3 frame (26 ms at 44.1 kHz), independent of any transcript and of any listener.
 
-Independence note: the sum of inserted durations must equal the difference between the
-two files' durations, which the tests check with ``ffprobe`` -- a tool that shares no
-code with this module.
-
-Usage::
-
-    python -m tools.dai clean.mp3 stitched.mp3
+``./run verify`` is its one user.
 """
 
 from __future__ import annotations
 
-import argparse
-import json
 import mmap
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, List, Optional, Sequence, Union
@@ -57,7 +48,6 @@ class Frame:
     length: int
     samples: int
     sample_rate: int
-    bitrate_kbps: int
 
     @property
     def duration(self) -> float:
@@ -100,7 +90,7 @@ def parse_frame_header(buf, off: int) -> Optional[Frame]:
     length = (samples // 8) * bitrate * 1000 // sample_rate + padding
     if length < 24:
         return None
-    return Frame(off, length, samples, sample_rate, bitrate)
+    return Frame(off, length, samples, sample_rate)
 
 
 def _looks_like_frame_at(buf, off: int, depth: int = 2) -> bool:
@@ -154,83 +144,26 @@ class InsertedRegion:
 
     start: float
     end: float
-    start_frame: int
-    end_frame: int
-    byte_start: int
-    byte_end: int
-    #: clean-file frames that were skipped (re-encoded at the splice) to resume matching,
-    #: and their duration.  They lie inside the region but are not inserted audio.
-    skipped_clean_frames: int = 0
+    #: duration of the clean-file frames that were skipped (re-encoded at the splice) to
+    #: resume matching.  They lie inside the region but are not inserted audio.
     skipped_clean_seconds: float = 0.0
 
     @property
     def duration(self) -> float:
         return self.end - self.start
 
-    def to_dict(self) -> dict:
-        return {
-            "start": round(self.start, 3),
-            "end": round(self.end, 3),
-            "duration": round(self.duration, 3),
-            "start_frame": self.start_frame,
-            "end_frame": self.end_frame,
-            "byte_start": self.byte_start,
-            "byte_end": self.byte_end,
-            "skipped_clean_frames": self.skipped_clean_frames,
-            "skipped_clean_seconds": round(self.skipped_clean_seconds, 3),
-        }
-
 
 @dataclass
 class DaiResult:
     regions: List[InsertedRegion]
-    clean_duration: float
-    stitched_duration: float
-    clean_frames: int
-    stitched_frames: int
-    matched_frames: int
-    #: frames that differ in place (same position in both streams), typically the
-    #: encoder rewriting the frame at a splice.  Not counted as inserted.
-    modified_frames: int = 0
-    clean_path: Optional[str] = None
-    stitched_path: Optional[str] = None
 
     @property
     def total_inserted(self) -> float:
         return sum(r.duration for r in self.regions)
 
     @property
-    def duration_delta(self) -> float:
-        """What the inserted total *should* be, by the two files' own durations."""
-        return self.stitched_duration - self.clean_duration
-
-    @property
     def skipped_clean_seconds(self) -> float:
         return sum(r.skipped_clean_seconds for r in self.regions)
-
-    @property
-    def reconciled_inserted(self) -> float:
-        """``total_inserted`` minus clean frames rewritten at splices.  Equals
-        :attr:`duration_delta` exactly when the two files are clean-plus-insertions."""
-        return self.total_inserted - self.skipped_clean_seconds
-
-    def to_dict(self) -> dict:
-        return {
-            "schema": "podcleaner.dai/1",
-            "clean_path": self.clean_path,
-            "stitched_path": self.stitched_path,
-            "clean_duration": round(self.clean_duration, 3),
-            "stitched_duration": round(self.stitched_duration, 3),
-            "duration_delta": round(self.duration_delta, 3),
-            "total_inserted": round(self.total_inserted, 3),
-            "skipped_clean_seconds": round(self.skipped_clean_seconds, 3),
-            "reconciled_inserted": round(self.reconciled_inserted, 3),
-            "clean_frames": self.clean_frames,
-            "stitched_frames": self.stitched_frames,
-            "matched_frames": self.matched_frames,
-            "modified_frames": self.modified_frames,
-            "regions": [r.to_dict() for r in self.regions],
-        }
 
 
 def _frames_of(buf) -> List[Frame]:
@@ -280,29 +213,26 @@ def find_inserted_regions(
         bc = mmap.mmap(fc.fileno(), 0, access=mmap.ACCESS_READ)
         bs = mmap.mmap(fs.fileno(), 0, access=mmap.ACCESS_READ)
         try:
-            return _walk(bc, bs, min_match_run, max_skip_clean, str(clean_p), str(stitched_p))
+            return _walk(bc, bs, min_match_run, max_skip_clean)
         finally:
             bc.close()
             bs.close()
 
 
-def _walk(bc, bs, run: int, max_skip: int, clean_path: str, stitched_path: str) -> DaiResult:
+def _walk(bc, bs, run: int, max_skip: int) -> DaiResult:
     fcs = _frames_of(bc)
     fss = _frames_of(bs)
     # cumulative start time of every stitched frame (index len(fss) == total duration)
     stitched_t = [0.0] * (len(fss) + 1)
     for k, f in enumerate(fss):
         stitched_t[k + 1] = stitched_t[k] + f.duration
-    clean_duration = sum(f.duration for f in fcs)
 
     regions: List[InsertedRegion] = []
     i = j = 0
-    matched = modified = 0
     while i < len(fcs) and j < len(fss):
         if _same(bc, fcs[i], bs, fss[j]):
             i += 1
             j += 1
-            matched += 1
             continue
         # Same position, different bytes: a frame rewritten in place?
         in_place = None
@@ -313,7 +243,6 @@ def _walk(bc, bs, run: int, max_skip: int, clean_path: str, stitched_path: str) 
         if in_place is not None:
             i += in_place
             j += in_place
-            modified += in_place
             continue
         # An insertion begins at stitched frame j.  Find where the clean stream
         # resumes: the first stitched frame k > j from which `run` frames match the
@@ -340,8 +269,7 @@ def _walk(bc, bs, run: int, max_skip: int, clean_path: str, stitched_path: str) 
                 )
             regions.append(
                 InsertedRegion(
-                    stitched_t[j], stitched_t[len(fss)], j, len(fss),
-                    fss[j].offset, fss[-1].end, skipped_clean_frames=len(fcs) - i,
+                    stitched_t[j], stitched_t[len(fss)],
                     skipped_clean_seconds=sum(f.duration for f in fcs[i:]),
                 )
             )
@@ -351,72 +279,19 @@ def _walk(bc, bs, run: int, max_skip: int, clean_path: str, stitched_path: str) 
         k, d = found
         regions.append(
             InsertedRegion(
-                stitched_t[j], stitched_t[k], j, k, fss[j].offset, fss[k].offset,
-                skipped_clean_frames=d, skipped_clean_seconds=sum(f.duration for f in fcs[i : i + d]),
+                stitched_t[j], stitched_t[k],
+                skipped_clean_seconds=sum(f.duration for f in fcs[i : i + d]),
             )
         )
         i += d
         j = k
     if j < len(fss) and i >= len(fcs):
         # post-roll: stitched frames after the clean stream ended
-        regions.append(
-            InsertedRegion(stitched_t[j], stitched_t[len(fss)], j, len(fss), fss[j].offset, fss[-1].end)
-        )
+        regions.append(InsertedRegion(stitched_t[j], stitched_t[len(fss)]))
     elif i < len(fcs):
         raise DaiError(
             f"stitched file ended with {len(fcs) - i} clean frames unmatched; "
             f"the stitched file is not the clean file plus insertions"
         )
 
-    return DaiResult(
-        regions=regions,
-        clean_duration=clean_duration,
-        stitched_duration=stitched_t[len(fss)],
-        clean_frames=len(fcs),
-        stitched_frames=len(fss),
-        matched_frames=matched,
-        modified_frames=modified,
-        clean_path=clean_path,
-        stitched_path=stitched_path,
-    )
-
-
-# --------------------------------------------------------------------------------------
-# CLI
-# --------------------------------------------------------------------------------------
-
-
-def _clock(t: float) -> str:
-    h, rem = divmod(int(t), 3600)
-    m, s = divmod(rem, 60)
-    frac = int(round((t - int(t)) * 1000))
-    return f"{h}:{m:02d}:{s:02d}.{frac:03d}"
-
-
-def main(argv: Optional[Sequence[str]] = None) -> int:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("clean")
-    p.add_argument("stitched")
-    p.add_argument("--json", metavar="FILE", help="write the result as JSON")
-    args = p.parse_args(argv)
-    try:
-        res = find_inserted_regions(args.clean, args.stitched)
-    except DaiError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
-    print(f"clean    {_clock(res.clean_duration)}  ({res.clean_frames} frames)")
-    print(f"stitched {_clock(res.stitched_duration)}  ({res.stitched_frames} frames)")
-    print(f"matched  {res.matched_frames} frames, {res.modified_frames} rewritten in place")
-    print(f"inserted {_clock(res.total_inserted)} in {len(res.regions)} region(s); "
-          f"reconciled {res.reconciled_inserted:.3f}s vs duration delta {res.duration_delta:.3f}s")
-    for r in res.regions:
-        print(f"  {_clock(r.start)} -> {_clock(r.end)}  {r.duration:7.2f}s  "
-              f"frames {r.start_frame}-{r.end_frame}  skipped_clean={r.skipped_clean_frames}")
-    if args.json:
-        Path(args.json).write_text(json.dumps(res.to_dict(), indent=2))
-        print(f"wrote {args.json}")
-    return 0
-
-
-if __name__ == "__main__":  # pragma: no cover
-    raise SystemExit(main())
+    return DaiResult(regions)

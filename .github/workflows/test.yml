@@ -14,9 +14,7 @@
 # shorter without taking the server's word for it.
 #
 # Debian 12 for that ruler because that is the ffmpeg the host runs, 5.1.9, to the package
-# revision. The reason is no longer memory -- the cut that Alpine's ffmpeg 6 was OOM-killed
-# on was the old Python server's, and no ffmpeg cuts anything now. It is that CI must
-# measure what the host measures: a different build can lay the generated episode's frames
+# revision, because CI must measure what the host measures: a different build can lay the generated episode's frames
 # out differently, and then the suite is checking a file the host would never have made.
 #
 # Still only ever proven on the host: `./run verify`, which walks the audio a listener

@@ -92,7 +92,7 @@ def verify(feed_url: str, guid: str) -> int:
     try:
         stitch, master = work / "stitch.mp3", work / "master.mp3"
         got = _download(origin, stitch, PODCATCHER_USER_AGENT)
-        want = (verdict.get("source_sha256") or "").removeprefix("sha256:")
+        want = verdict.get("source_sha256") or ""
         if want and got != want:
             print(f"the publisher has re-stitched this episode since it was cut\n"
                   f"  cut from  sha256:{want}\n  now serves sha256:{got}\n"

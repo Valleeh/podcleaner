@@ -67,9 +67,7 @@ it, and two images — the server's, via `./run build`, and an ffmpeg for the su
 built from Debian 12 because that is the ffmpeg this host runs. The pin is about the
 ruler, not about memory: the suite encodes the episode it plays and decodes what came
 back, and another ffmpeg can lay those frames out differently, so CI would be measuring a
-file this host would never have made. (The Alpine OOM kill that used to justify the pin
-was the old Python cutter's, at 256 MB and still at 512 MB. Nothing re-encodes now, so
-that failure cannot recur — but do not take the pin out on those grounds.) Every test
+file this host would never have made. Every test
 runs there and nothing skips. `./run verify` stays host-only: it is the one thing
 that still needs the commercial episode.
 `./run whisper`, `./run labels`, `./run ads` and `./run record` no longer exist: local
@@ -93,8 +91,8 @@ memory.
 
 ## Never commit
 
-`var/` (823 MB of commercial audio under `var/fixtures/`, plus `var/cache/`,
-`var/transcripts/` and `var/reports/`) and `.secret.json`.
+`var/` (the served episodes under `var/episodes/`, 823 MB of commercial audio under
+`var/fixtures/`, and old measurement output) and `.secret.json`.
 The OpenRouter token lives in `.secret.json` under `openrouter-token`.
 
 ## How to work here
@@ -110,13 +108,13 @@ The OpenRouter token lives in `.secret.json` under `openrouter-token`.
 ## How a change is made
 
 1. **No unit tests while the MVP phase lasts.** The internals are going to be
-   refactored, and a test naming `snap_segment` or `plan_cuts` has to be rewritten when
+   refactored, and a test naming an internal function has to be rewritten when
    they move -- so it pins the shape of today's code rather than what a listener gets.
    Everything is proven through the four routes in `tests/integration/`, against local
    servers standing in for the origin and the two paid endpoints. A test only if it would
    have caught this bug.
 2. Work testdriven. so on every change. first check if this change touches an existent Test. If not create a Test that verifies the correct behavoir. It should first run red. then change the implementation, then it should run green. At MVP phase i expect only integration tests to be created or changed. fokus on simple meaningful tests not many complex
-5. **`./run test` green**, then commit and PR.
+3. **`./run test` green**, then commit and PR.
 
 **When you catch yourself** adding a test that pins a literal value in both directions,
 or writing a paragraph of document where a line of `docs/requirements.md` would do: stop.
