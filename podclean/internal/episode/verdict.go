@@ -3,7 +3,6 @@ package episode
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
@@ -116,20 +115,3 @@ func marks(chapters []timeline.Chapter) [][2]any {
 }
 
 func round(seconds float64) float64 { return math.Round(seconds*1000) / 1000 }
-
-// chaptersJSON is the podcast namespace's own format. Seconds, not milliseconds.
-func chaptersJSON(chapters []timeline.Chapter) []byte {
-	type entry struct {
-		StartTime float64 `json:"startTime"`
-		Title     string  `json:"title"`
-	}
-	doc := struct {
-		Version  string  `json:"version"`
-		Chapters []entry `json:"chapters"`
-	}{Version: "1.2.0", Chapters: make([]entry, 0, len(chapters))}
-	for _, c := range chapters {
-		doc.Chapters = append(doc.Chapters, entry{StartTime: round(c.At), Title: c.Title})
-	}
-	body, _ := json.Marshal(doc) // floats and strings: it cannot fail
-	return body
-}

@@ -1,6 +1,7 @@
 package episode
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"podclean/internal/classify"
@@ -106,4 +107,22 @@ func render(r result) (audio []byte, chapters []timeline.Chapter, vtt string) {
 		audio = append(mp3.ChapterTag(chapters, r.file.Seconds()-line.Total()), r.file.Cut(line)...)
 	}
 	return audio, chapters, r.text.VTT(line)
+}
+
+// chaptersJSON is the chapters sidecar, in the podcast namespace's own format. Seconds,
+// not milliseconds.
+func chaptersJSON(chapters []timeline.Chapter) []byte {
+	type entry struct {
+		StartTime float64 `json:"startTime"`
+		Title     string  `json:"title"`
+	}
+	doc := struct {
+		Version  string  `json:"version"`
+		Chapters []entry `json:"chapters"`
+	}{Version: "1.2.0", Chapters: make([]entry, 0, len(chapters))}
+	for _, c := range chapters {
+		doc.Chapters = append(doc.Chapters, entry{StartTime: round(c.At), Title: c.Title})
+	}
+	body, _ := json.Marshal(doc) // floats and strings: it cannot fail
+	return body
 }
