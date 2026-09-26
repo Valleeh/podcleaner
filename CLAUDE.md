@@ -36,7 +36,7 @@ again on first play. Go inherited that key unchanged, so nothing moved on 2026-0
 
 Never remove real content. A missed advertisement is an annoyance. A sentence clipped
 mid-word is destructive and the listener cannot recover it. When a cut edge is uncertain,
-choose rather more advertisment then less (so some seconds of advertisement at the begin of the ad and at the end is tolerateable, and even good because i can better see if it was really advertisement that was clipped). This rule outranks every other goal, including
+choose rather more advertisement than less (so some seconds of advertisement at the beginning of the ad and at the end is tolerable, and even good because i can better see if it was really advertisement that was clipped). This rule outranks every other goal, including
 in the MVP.
 
 ## Commands
@@ -82,8 +82,8 @@ one nobody will keep honest. Do not rebuild it.
 
 4 GB RAM; Caddy, Vikunja and Portainer hold the rest.
 There is no `ffmpeg`, `ffprobe` or `python` on `PATH`; ffmpeg runs only inside the
-`whisper-cpp:local` Docker image (the name is legacy twice over -- from before whisper.cpp
-was deleted, and from before the server stopped needing ffmpeg at all). The **suite** runs
+`podclean-ffmpeg:ci` Docker image (on this host a second tag of the legacy
+`whisper-cpp:local`, which is the Debian 12 ffmpeg CI builds). The **suite** runs
 it, to build the episode it plays and to measure what came back; `PODCLEAN_TEST_FFMPEG_IMAGE`
 points it elsewhere. The server does not: it cuts by leaving whole MP3 frames out, in
 process. One heavy job at a time; three background jobs were already killed here for
@@ -97,7 +97,7 @@ The OpenRouter token lives in `.secret.json` under `openrouter-token`.
 
 ## How to work here
 
-- Simplicity wins! Use Abstractions, one layer should be responsible for one thing. The buisnesslogic should be decoupled from the low-level logic as much as possible. Build useful classes, types, functions that nicely work toghether. I think the pipeline pattern makes sense here.
+- Simplicity wins! Use Abstractions, one layer should be responsible for one thing. The business logic should be decoupled from the low-level logic as much as possible. Build useful classes, types, functions that nicely work together. I think the pipeline pattern makes sense here.
 - Do not build for cases that have not happened.
 - Commit at every green test run. Small commits on a branch are cheap.
 - Delegate broad searches to a subagent so its hits never enter the main context.
@@ -113,7 +113,7 @@ The OpenRouter token lives in `.secret.json` under `openrouter-token`.
    Everything is proven through the four routes in `tests/integration/`, against local
    servers standing in for the origin and the two paid endpoints. A test only if it would
    have caught this bug.
-2. Work testdriven. so on every change. first check if this change touches an existent Test. If not create a Test that verifies the correct behavoir. It should first run red. then change the implementation, then it should run green. At MVP phase i expect only integration tests to be created or changed. fokus on simple meaningful tests not many complex
+2. Work test-driven. so on every change. first check if this change touches an existent Test. If not create a Test that verifies the correct behavior. It should first run red. then change the implementation, then it should run green. At MVP phase i expect only integration tests to be created or changed. focus on simple meaningful tests not many complex
 3. **`./run test` green**, then commit and PR.
 
 **When you catch yourself** adding a test that pins a literal value in both directions,

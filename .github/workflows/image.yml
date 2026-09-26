@@ -1,0 +1,63 @@
+# The image a deployment pulls, published to ghcr.io/valleeh/podcleaner.
+#
+# compose.yaml names this image, so deploying takes two files and no Go toolchain. Every
+# push to master publishes `latest` and `sha-<commit>`; a tag `v1.2.3` also publishes
+# `1.2.3` and `1.2`, for anybody who would rather move on their own schedule.
+#
+# amd64 and arm64, because the obvious place to run this is a small box at home. The
+# Dockerfile cross-compiles, so the second architecture costs seconds, not an emulator.
+#
+# A pull request that touches the image builds both architectures and pushes nothing, so
+# a Dockerfile that only breaks on arm64 is found before master publishes it.
+#
+# This does not run the suite: test.yml does, on the same push. A red suite on master is
+# already the thing to fix, and publishing does not make it any less so.
+name: image
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+    paths: [podclean/**, .github/workflows/image.yml]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/podcleaner
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: podclean
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

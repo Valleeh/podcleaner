@@ -7,12 +7,16 @@
 #
 # Nothing else is installed. The server needs no ffmpeg: it removes advertising by
 # leaving whole MP3 frames out, in process, which is why it fits on a small host.
-FROM golang:1.23-alpine AS build
+#
+# The build stage runs on the builder's own platform and cross-compiles, so the arm64
+# image is made by a native Go toolchain rather than one running under emulation.
+FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS build
+ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY go.mod ./
 COPY cmd ./cmd
 COPY internal ./internal
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /podclean ./cmd/podclean
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /podclean ./cmd/podclean
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates \
