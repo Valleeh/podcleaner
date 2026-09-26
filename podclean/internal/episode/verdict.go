@@ -1,12 +1,14 @@
 package episode
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"math"
 	"strings"
 
 	"podclean/internal/classify"
-	"podclean/internal/plan"
 	"podclean/internal/timeline"
 )
 
@@ -41,6 +43,44 @@ type verdict struct {
 	SourceSHA256 string `json:"source_sha256"`
 }
 
+// verdictOf is the record of one run, read off the result once it is over. A field is
+// filled only if the stage that produces it was reached: a verdict written before the
+// model was asked says null for what the model would have said, not an empty list.
+func verdictOf(spec string, r result) verdict {
+	v := verdict{Schema: "podclean.verdict/1", State: "failed", ModelSpec: spec}
+	if r.raw != nil {
+		sum := sha256.Sum256(r.raw)
+		v.SourceSHA256 = hex.EncodeToString(sum[:])
+	}
+	if r.file != nil {
+		v.DurationSeconds = round(r.file.Seconds())
+	}
+	if r.text != nil {
+		v.Cues = len(r.text.Cues)
+	}
+	switch {
+	case r.err != nil:
+		v.Error = r.err.Error()
+		return v
+	case r.untouched:
+		v.State = "untouched"
+		v.Error = fmt.Sprintf("%.0f s is longer than the %d s this server will examine",
+			r.file.Seconds(), longestEpisode)
+		return v
+	}
+	v.Proposed = proposed(r.reply.Segments)
+	v.ProposedCount = len(r.reply.Segments)
+	v.State = r.plan.State
+	// Why the plan removed less than the model asked for, in one line. A refusal that
+	// leaves no trace is a refusal nobody can improve on.
+	v.Error = strings.Join(r.plan.Refusals, "; ")
+	line := r.plan.Timeline()
+	v.Removed = spans(line.Removed)
+	v.RemovedSeconds = round(line.Total())
+	v.Chapters = marks(r.chapters)
+	return v
+}
+
 // A proposal is one break as the model reported it, kept whether or not it was cut: when
 // a cut goes wrong in production, this is the only record of what was asked for.
 type proposal struct {
@@ -73,12 +113,6 @@ func marks(chapters []timeline.Chapter) [][2]any {
 		out = append(out, [2]any{round(c.At), c.Title})
 	}
 	return out
-}
-
-// errorOf is why a plan removed less than the model asked for, in one line. A refusal
-// that leaves no trace is a refusal nobody can improve on.
-func errorOf(p plan.Plan) string {
-	return strings.Join(p.Refusals, "; ")
 }
 
 func round(seconds float64) float64 { return math.Round(seconds*1000) / 1000 }

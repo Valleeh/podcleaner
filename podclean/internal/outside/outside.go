@@ -38,11 +38,6 @@ const (
 	paidTimeout  = 900 * time.Second
 )
 
-// A RemoteError is somebody else failing. It carries the words to put in the 502.
-type RemoteError struct{ Message string }
-
-func (e *RemoteError) Error() string { return e.Message }
-
 // A Client talks to the three of them.
 type Client struct {
 	TranscribeBaseURL string
@@ -65,23 +60,23 @@ func (c *Client) http(timeout time.Duration) *http.Client {
 func (c *Client) get(url string, timeout time.Duration, header http.Header) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		return nil, &RemoteError{Message: fmt.Sprintf("cannot ask for %s: %v", url, err)}
+		return nil, fmt.Errorf("cannot ask for %s: %v", url, err)
 	}
 	for name, values := range header {
 		req.Header[name] = values
 	}
 	resp, err := c.http(timeout).Do(req)
 	if err != nil {
-		return nil, &RemoteError{Message: fmt.Sprintf("%s: %v", url, err)}
+		return nil, fmt.Errorf("%s: %v", url, err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, &RemoteError{Message: fmt.Sprintf("%s: %v", url, err)}
+		return nil, fmt.Errorf("%s: %v", url, err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, &RemoteError{Message: fmt.Sprintf("%s answered %d: %s",
-			url, resp.StatusCode, first200(body))}
+		return nil, fmt.Errorf("%s answered %d: %s",
+			url, resp.StatusCode, first200(body))
 	}
 	return body, nil
 }
@@ -140,10 +135,10 @@ func (c *Client) Transcribe(audio []byte) ([]byte, error) {
 	head.Set("Content-Type", "audio/mpeg")
 	part, err := form.CreatePart(head)
 	if err != nil {
-		return nil, &RemoteError{Message: fmt.Sprintf("cannot build the transcription request: %v", err)}
+		return nil, fmt.Errorf("cannot build the transcription request: %v", err)
 	}
 	if _, err := part.Write(audio); err != nil {
-		return nil, &RemoteError{Message: fmt.Sprintf("cannot build the transcription request: %v", err)}
+		return nil, fmt.Errorf("cannot build the transcription request: %v", err)
 	}
 	for _, field := range [][2]string{
 		{"model", transcriptionModel},
@@ -152,7 +147,7 @@ func (c *Client) Transcribe(audio []byte) ([]byte, error) {
 		{"timestamp_granularities[]", "word"},
 	} {
 		if err := form.WriteField(field[0], field[1]); err != nil {
-			return nil, &RemoteError{Message: fmt.Sprintf("cannot build the transcription request: %v", err)}
+			return nil, fmt.Errorf("cannot build the transcription request: %v", err)
 		}
 	}
 	form.Close()
@@ -174,7 +169,7 @@ func (c *Client) Complete(model, system, user string) (string, error) {
 		"response_format": map[string]string{"type": "json_object"},
 	})
 	if err != nil {
-		return "", &RemoteError{Message: fmt.Sprintf("cannot build the request to %s: %v", model, err)}
+		return "", fmt.Errorf("cannot build the request to %s: %v", model, err)
 	}
 	body, err := c.post(c.LLMBaseURL+"/chat/completions", "application/json", request)
 	if err != nil {
@@ -188,8 +183,8 @@ func (c *Client) Complete(model, system, user string) (string, error) {
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(body, &reply); err != nil || len(reply.Choices) == 0 {
-		return "", &RemoteError{Message: fmt.Sprintf("%s answered something that is not a completion: %s",
-			model, first200(body))}
+		return "", fmt.Errorf("%s answered something that is not a completion: %s",
+			model, first200(body))
 	}
 	return reply.Choices[0].Message.Content, nil
 }
@@ -197,7 +192,7 @@ func (c *Client) Complete(model, system, user string) (string, error) {
 func (c *Client) post(url, contentType string, body []byte) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return nil, &RemoteError{Message: fmt.Sprintf("cannot ask %s: %v", url, err)}
+		return nil, fmt.Errorf("cannot ask %s: %v", url, err)
 	}
 	req.Header.Set("Content-Type", contentType)
 	if c.APIKey != "" {
@@ -205,16 +200,16 @@ func (c *Client) post(url, contentType string, body []byte) ([]byte, error) {
 	}
 	resp, err := c.http(paidTimeout).Do(req)
 	if err != nil {
-		return nil, &RemoteError{Message: fmt.Sprintf("%s: %v", url, err)}
+		return nil, fmt.Errorf("%s: %v", url, err)
 	}
 	defer resp.Body.Close()
 	answer, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, &RemoteError{Message: fmt.Sprintf("%s: %v", url, err)}
+		return nil, fmt.Errorf("%s: %v", url, err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, &RemoteError{Message: fmt.Sprintf("%s answered %d: %s",
-			url, resp.StatusCode, first200(answer))}
+		return nil, fmt.Errorf("%s answered %d: %s",
+			url, resp.StatusCode, first200(answer))
 	}
 	return answer, nil
 }
