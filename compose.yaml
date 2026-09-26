@@ -1,15 +1,18 @@
 # An ordinary deployment: one container, one volume, a reverse proxy in front of it.
 #
 #     cp .env.example .env    # and fill in the two that have no default
-#     docker compose up -d --build
+#     docker compose up -d    # pulls the published image
+#
+# From a clone, `docker compose up -d --build` builds the image from ./podclean instead.
+# `docker compose pull && docker compose up -d` updates to the latest published one.
 #
 # `./run serve` is the other way to start it -- the development one, which shares the
 # host's network and pid namespace so the suite can reach a stub on localhost. Neither is
 # needed here.
 services:
   podclean:
+    image: ghcr.io/valleeh/podcleaner:latest
     build: ./podclean
-    image: podclean
     restart: unless-stopped
     ports:
       - "${PODCLEANER_PORT:-8080}:8080"

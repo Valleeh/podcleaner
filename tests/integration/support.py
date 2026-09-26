@@ -66,10 +66,10 @@ REPO = Path(__file__).resolve().parents[2]
 SERVER_CMD = shlex.split(
     os.environ.get("PODCLEAN_SERVER_CMD", "./run serve"))
 
-#: The image ffmpeg is run from for :func:`decode_seconds`.  There is no ffmpeg on this
-#: host's PATH.  Deliberately its own setting rather than the server's, so the ruler keeps
-#: working when the server is something else entirely.
-FFMPEG_IMAGE = os.environ.get("PODCLEAN_TEST_FFMPEG_IMAGE", "whisper-cpp:local")
+#: The image ffmpeg is run from for :func:`decode_seconds`: Debian 12's ffmpeg, built as
+#: the README and CI build it.  Deliberately its own setting rather than the server's, so
+#: the ruler keeps working when the server is something else entirely.
+FFMPEG_IMAGE = os.environ.get("PODCLEAN_TEST_FFMPEG_IMAGE", "podclean-ffmpeg:ci")
 
 _TIME = re.compile(r"time=(\d+):(\d\d):(\d\d(?:\.\d+)?)")
 

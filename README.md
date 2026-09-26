@@ -40,17 +40,20 @@ served meanwhile.
 
 ## Get started
 
-You need Docker with Compose, an OpenRouter API key, and an address your podcast app can
-reach. The server is a single Go binary: no database, no ffmpeg. Audio goes to the
-transcription API and the transcript to the classification models; nothing else leaves
-the host.
+You need Docker with Compose, an [OpenRouter](https://openrouter.ai) API key, and an
+address your podcast app can reach. The server is a single Go binary: no database, no
+ffmpeg. It is published as a Docker image for amd64 and arm64, so a Raspberry Pi will do.
+Audio goes to the transcription API and the transcript to the classification models;
+nothing else leaves the host.
 
 ### 1. Configure
 
+Two files are all a deployment needs, no clone:
+
 ```sh
-git clone https://github.com/Valleeh/podcleaner.git
-cd podcleaner
-cp .env.example .env
+mkdir podclean && cd podclean
+curl -fsSLO https://raw.githubusercontent.com/Valleeh/podcleaner/master/compose.yaml
+curl -fsSL  https://raw.githubusercontent.com/Valleeh/podcleaner/master/.env.example -o .env
 ```
 
 Fill in the two required values in `.env`:
@@ -66,13 +69,39 @@ into every episode link, so it has to be reachable from your listening devices.
 ### 2. Start it
 
 ```sh
-docker compose up -d --build
+docker compose up -d
 ```
 
-Compose publishes port `8080`. Put a reverse proxy in front of it for HTTPS and access
-control — the episodes you produce are yours, not the internet's, and PodClean has no
-authentication of its own — and let the proxy keep a request open for the minutes a first
-download takes.
+That pulls `ghcr.io/valleeh/podcleaner:latest` and publishes port `8080`. Put a reverse
+proxy in front of it for HTTPS and access control — the episodes you produce are yours,
+not the internet's, and PodClean has no authentication of its own — and let the proxy
+keep a request open for the minutes a first download takes. With
+[Caddy](https://caddyserver.com), for example:
+
+```caddyfile
+podclean.example.org {
+	reverse_proxy localhost:8080
+}
+```
+
+Caddy gets the certificate itself and has no upstream timeout by default, so a first
+download is not cut off.
+
+To update: `docker compose pull && docker compose up -d`. Stored episodes live in a volume
+and survive it.
+
+Without Compose, the same thing is one command:
+
+```sh
+docker run -d --name podclean --restart unless-stopped -p 8080:8080 \
+  -e PODCLEANER_BASE_URL=https://podclean.example.org \
+  -e PODCLEANER_LLM_API_KEY=your-openrouter-api-key \
+  -v podclean-episodes:/var/lib/podclean \
+  ghcr.io/valleeh/podcleaner:latest
+```
+
+To build the image from source instead, clone the repository and run
+`docker compose up -d --build` in it.
 
 ### 3. Add a podcast
 
@@ -261,7 +290,7 @@ RUN apt-get update \
 DOCKERFILE
 
 ./run build
-PODCLEAN_TEST_FFMPEG_IMAGE=podclean-ffmpeg:ci ./run test
+./run test
 ```
 
 That is what [CI](.github/workflows/test.yml) runs on every pull request. The other
