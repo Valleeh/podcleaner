@@ -125,12 +125,8 @@ func (o *Orchestrator) save(feed, guid string, r result) (Audio, error) {
 			store.Key(feed, guid), err)
 		return Audio{Bytes: r.served}, nil
 	}
-	// Untouched was never read, so there is nothing this server could truthfully say
-	// about it: no sidecars.
-	if !r.untouched {
-		_ = o.Store.Put(feed, guid, store.ChaptersFile, chaptersJSON(r.chapters))
-		_ = o.Store.Put(feed, guid, store.TranscriptFile, []byte(r.vtt))
-	}
+	_ = o.Store.Put(feed, guid, store.ChaptersFile, chaptersJSON(r.chapters))
+	_ = o.Store.Put(feed, guid, store.TranscriptFile, []byte(r.vtt))
 	o.record(feed, guid, v)
 	stored, _ := o.published(feed, guid)
 	return stored, nil

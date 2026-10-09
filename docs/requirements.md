@@ -164,8 +164,8 @@ that one of the two rules exists, and neither on its own.
 served whole and no documents are published for it.
 *Asserted by* `test_a_reply_the_model_mangles_leaves_the_episode_whole`.
 
-**33.** An episode too long to examine is served untouched, and nothing is asked about it.
-*Not asserted.*
+**33.** An episode is examined and cut however long it runs.
+*Asserted by* `test_an_episode_hours_long_is_cut_all_the_same`.
 
 ## The chapter marks and the transcript
 

@@ -3,7 +3,6 @@ package episode
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"math"
 	"strings"
 
@@ -14,9 +13,8 @@ import (
 // A verdict is the record of what was decided about one episode, and the only thing
 // written for an episode whose production did not finish.
 //
-// Its state is one of five: cut, clean (nothing was proposed worth acting on), refused
-// (something was proposed that could not be trusted), untouched (never examined), failed
-// (a stage did not finish). Only failed is retried on the next play -- every other state
+// Its state is one of four: cut, clean (nothing was proposed worth acting on), refused
+// (something was proposed that could not be trusted), failed (a stage did not finish). Only failed is retried on the next play -- every other state
 // is a decision, and a decision is not revisited, so an improvement made later does not
 // reach an episode already produced.
 //
@@ -57,14 +55,8 @@ func verdictOf(spec string, r result) verdict {
 	if r.text != nil {
 		v.Cues = len(r.text.Cues)
 	}
-	switch {
-	case r.err != nil:
+	if r.err != nil {
 		v.Error = r.err.Error()
-		return v
-	case r.untouched:
-		v.State = "untouched"
-		v.Error = fmt.Sprintf("%.0f s is longer than the %d s this server will examine",
-			r.file.Seconds(), longestEpisode)
 		return v
 	}
 	v.Proposed = proposed(r.reply.Segments)

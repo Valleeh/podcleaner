@@ -202,16 +202,14 @@ whole episode.
 | 0.5 | `plan.minConfidence` | below this the model's segment is ignored |
 | 600 s | `plan.longestBreak` | a single cut longer than this refuses the whole plan |
 | 0.2 | `plan.mostOfAnEpisode` | cuts totalling more than this share of the episode refuse the whole plan |
-| 8400 s | `episode.longestEpisode` | longer than this and the episode is served untouched, unexamined and unbilled |
 | 3 s | `mp3.minimumSeconds` | fewer seconds of parsable frames and the publisher's reply is not audio |
 | `sponsor_read`, `host_endorsement`, `cross_promo` | `plan.cuttable` | the only categories ever cut |
 
-A plan's outcome is one of five states, written into `verdict.json`: `cut` (at least one
+A plan's outcome is one of four states, written into `verdict.json`: `cut` (at least one
 candidate was placed; a refused sibling is recorded in `error`), `clean` (nothing the
 model proposed was a cuttable category at or above the confidence threshold — `proposed`
 may still be non-empty), `refused` (every such candidate was refused, or the plan as a
-whole was not believable), `untouched` (never examined), `failed` (a stage did not
-finish). Only `failed` is retried on the next play.
+whole was not believable), `failed` (a stage did not finish). Only `failed` is retried on the next play.
 
 ## The cut itself
 
@@ -245,8 +243,8 @@ port that changes it silently breaks the one tool that can prove the one rule.
 |---|---|---|
 | `source.json` | when a feed names the episode | `{"url": <publisher enclosure>, "feed": <feed url>, "chapters_url": <publisher's marks or null>}`. Its presence is what makes an episode playable: no `source.json`, 404, and nothing goes out. |
 | `audio.mp3` | first play | when cut: the ID3 chapter tag (only if there are marks), then the kept frames — the publisher's own tag, Xing/Info frame and any bytes between frames are gone. Otherwise the publisher's bytes exactly as fetched. |
-| `chapters.json` | first play, except `untouched` | the marks on the served timeline |
-| `transcript.vtt` | first play, except `untouched` | the transcript on the served timeline |
+| `chapters.json` | first play | the marks on the served timeline |
+| `transcript.vtt` | first play | the transcript on the served timeline |
 | `verdict.json` | first play, always, last | what was decided |
 
 Every file is written to `<name>.tmp` and renamed, so a reader sees it whole or not at
@@ -277,7 +275,7 @@ a parameter it needs is missing or blank.
 |---|---|
 | `GET /rss?feed=` | 200 `application/rss+xml`; 502 with the publisher's failure text |
 | `GET /podcast?feed=&guid=` | 200 `audio/mpeg`, **no charset**; 206 with `content-range` for a range; 404 for an episode no feed has named; 502 if the publisher failed |
-| `GET /chapters?feed=&guid=` | 200 `application/json+chapters`; 404 until the document exists — for an `untouched` episode, for ever |
+| `GET /chapters?feed=&guid=` | 200 `application/json+chapters`; 404 until the document exists |
 | `GET /transcript?feed=&guid=` | 200 `text/vtt`; 404 likewise |
 
 `HEAD` is answered as the `GET` would be, without a body — a podcatcher asks it before it

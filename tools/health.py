@@ -151,9 +151,8 @@ def check_last_verdict() -> bool:
     if not verdicts:
         return _say(False, "last episode", "no episode has ever been through the pipeline")
     v = json.loads(verdicts[-1].read_text())
-    # untouched is a decision like any other -- an episode too long to examine, served
-    # whole and unbilled. Only `failed` and a state this tool does not know are outages.
-    good = v.get("state") in ("cut", "clean", "refused", "untouched")
+    # Only `failed` and a state this tool does not know are outages.
+    good = v.get("state") in ("cut", "clean", "refused")
     return _say(good, "last episode",
                 f"{verdicts[-1].parent.name} state={v.get('state')} "
                 f"removed={v.get('removed_seconds', 0)} s")

@@ -193,7 +193,6 @@ Smaller things a listener notices:
 | Situation | What the listener gets | Then |
 |---|---|---|
 | No eligible advertising, or every break refused | The publisher's audio, whole | Stored and served from disk from then on. |
-| Episode longer than 2 h 20 min | The publisher's audio, whole, unexamined | Stored; no chapters or transcript are ever generated for it. |
 | Transcription or classification fails | The publisher's audio, whole | Nothing is kept; the next request does the work — and pays — again. |
 | Publisher download fails, or is not MP3 | An HTTP 502 | Nothing is kept; the next request tries the publisher again. |
 
