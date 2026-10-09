@@ -26,7 +26,7 @@ Everything is an environment variable, read at use, no configuration file. `inte
 | `PODCLEANER_LLM_BASE_URL` | `https://openrouter.ai/api/v1` | OpenAI-shaped; `/chat/completions` is appended |
 | `PODCLEANER_TRANSCRIBE_BASE_URL` | `https://openrouter.ai/api/v1` | OpenAI-shaped; `/audio/transcriptions` is appended |
 | `PODCLEANER_LLM_API_KEY` | empty | bearer token for **both** of the above |
-| `PODCLEANER_LLM_SPEC` | `cascade:qwen/qwen3.7-flash>deepseek/deepseek-v4-flash` | which model or models classify |
+| `PODCLEANER_LLM_SPEC` | `qwen/qwen3.7-flash` | which model or models classify |
 | `PODCLEANER_TRANSCRIBE_MAX_BYTES` | `25165824` (24 MiB) | largest body sent to the transcriber |
 | `PODCLEANER_PARENT_PID` | unset | if set, halt when `/proc/<pid>` disappears — how `./run serve` dies with its `docker run` |
 
@@ -41,11 +41,16 @@ success; anything else is a failure carrying `<url> answered <status>: ` and the
 endpoint, once the audio is in hand, it is a `failed` verdict with that text in `error`,
 and the listener is served the publisher's own audio with a 200.
 
-**The publisher's audio.** `GET` the enclosure URL with `user-agent: AntennaPod/3.6.0`
-and a 600 s receive timeout, body not decoded. The user-agent is not cosmetic: publishers
-who stitch advertising in serve the ad-free master to plain clients and the stitched copy
-to podcatchers, so a request that did not look like a podcatcher would fetch audio no
-listener is ever served, and `./run verify` would compare a file against itself.
+**The publisher's audio.** First the master: `GET` the enclosure URL as a plain client (no
+user-agent set) and `HEAD` it with `user-agent: AntennaPod/3.6.0`, 600 s, body not
+decoded. Publishers who stitch advertising in serve the ad-free master to plain clients
+and the stitched copy to podcatchers, reusing the master's frames byte for byte. The plain
+copy is used when it parses as audio, is no larger than the `Content-Length` the `HEAD`
+answered, and at least 0.8 of it (`episode.leastMaster`: a smaller copy is a trailer or a
+preview, not the episode without its spots). Otherwise — no length, a failed fetch, not
+audio, out of that band — the episode is fetched again with `user-agent:
+AntennaPod/3.6.0`, which is what was fetched before 2026-10-10. `./run verify` re-fetches
+both and recognises a cut made from the master by its `source_sha256`.
 
 **The publisher's feed.** `GET`, 120 s, *without* the podcatcher user-agent: the document
 is the same for every client.
@@ -60,9 +65,10 @@ auth, 900 s, `multipart/form-data`:
 | field | value |
 |---|---|
 | `file` | the audio, filename `episode.mp3`, content type `audio/mpeg` |
-| `model` | `openai/whisper-large-v3-turbo` |
+| `model` | `openai/whisper-large-v3-turbo` for the episode's pieces, `x-ai/grok-stt-1.0` for its holes |
 | `response_format` | `verbose_json` |
 | `timestamp_granularities[]` | `segment` **and** `word`, sent twice |
+| `language` | the first two letters of the feed channel's `<language>`, lowercased; absent when the feed names none |
 
 Both granularities are required. The reply must carry top-level `segments` (each with
 `start`, `end`, `text`) and `words` (each with `start`, `end`, `word`); a reply with only
@@ -71,8 +77,8 @@ words are what a cut's start is placed on.
 
 **Classification.** `POST $PODCLEANER_LLM_BASE_URL/chat/completions`, bearer auth, 900 s,
 JSON body: `model`, `messages`, `temperature: 0`, `response_format: {"type":
-"json_object"}`. Nothing else is sent — no `max_tokens`, no reasoning switch — so whether
-a model reasons is the provider's default for that model id; the reply's `usage` block is
+"json_object"}`, `reasoning: {"max_tokens": 4000}`. Nothing else is sent — no `max_tokens`
+on the answer; the reply's `usage` block is
 not read or logged, so what an episode's transcription and its model calls each cost is
 not on record. `messages` is the system prompt and one user message of up to three parts,
 separated by blank lines and each absent with its separator when empty: the publisher's
@@ -82,8 +88,8 @@ starting point. They may be wrong and they do not say where the advertising is:`
 whole rendered transcript — nothing chunks it, and the model's context window is the only
 limit past the episode-length cap. Read back `choices[0].message.content`, strip a ``` or
 ```json fence if the model wrapped one round it, parse as JSON, and require a `segments`
-list. Anything else is an unreadable reply: not asked again now, and not a decision about
-the audio either — `verdict.json` is written with `state: failed` and the error, nothing
+list. Anything else is an unreadable reply: the same question is asked once more, and a
+second unreadable reply is not a decision about the audio either — `verdict.json` is written with `state: failed` and the error, nothing
 else is, and the next play asks again.
 
 ## The cascade
@@ -95,7 +101,7 @@ publisher's marks; their segments are then listed to the verifier as
 
     A first pass reported these; verify each and add any it missed:
 
-and only the verifier's answer is used. A screen that fails or answers rubbish is dropped
+and only the verifier's answer is used. The verifier reads the episode twice (`classify.readings`) and the segments of both readings are placed; the chapters are the first reading's, and an unreadable reading is asked once more and then dropped. A screen that fails or answers rubbish is dropped
 silently — it can only ever have added candidates.
 
 ## The prompt
@@ -109,7 +115,10 @@ word for word. For a port that cannot, what it must contain:
 * the five categories — `sponsor_read`, `host_endorsement`, `cross_promo`, `self_promo`,
   `credits` — each defined, because only the first three are ever cut. `self_promo` has
   to name anything the same people make, another podcast they publish included, or the
-  model files the hosts' own second show under `cross_promo` and it is cut;
+  model files the hosts' own second show under `cross_promo` and it is cut; and it has
+  to stop there -- only what the hosts say is theirs, and a regional spot the publisher
+  inserted, in another language and with no announcer, is `sponsor_read`, or the model
+  files it under `self_promo` at 0.6 and it is left in;
 * the German words a break announces itself with — `Werbung`, `Anzeige`, `präsentiert
   von`, `und jetzt zurück zur Sendung` — next to the English ones, because the episodes
   this is measured on are German;
@@ -138,7 +147,8 @@ tried and made it worse are recorded next to the prompt so that nobody adds them
 The answer, one JSON object:
 
     {"segments": [{"start_cue": int, "end_cue": int, "category": string,
-                   "confidence": number 0-1, "reason": string, "first_words": string}],
+                   "confidence": number 0-1, "reason": string, "first_words": string,
+                   "last_words": string}],
      "chapters": [{"cue": int, "title": string}]}
 
 ## Sending an episode up in pieces
@@ -151,7 +161,20 @@ pieces**. The renumbering is load-bearing: a break is placed by looking its cues
 number. No overlap is added between pieces: a garbled word at a boundary can only make a
 quote unfindable, which leaves an ad in. 24 MiB against the endpoint's 25: the multipart
 wrapper goes up too, and a request refused for being a few hundred bytes over costs the
-whole episode.
+whole episode. A piece is its frames concatenated and nothing else: the bytes a splice
+leaves between two frames stay behind, because sent along they stop the transcriber at
+the splice.
+
+Then every **hole** is sent up once more, to the hole model: a stretch of at least the constant below,
+including before the first word and after the last, with no word of any duration in it —
+what a segment claims to span does not count. It goes as the frames starting inside it,
+split the same way. Its cues and words are shifted by its own start and the whole
+transcript is put in time order before it is numbered. What the earlier replies said
+inside a hole the later reply filled gives way to it: their zero-length words there, both
+ends included, are dropped (they are the lost words parked at its far end, and would
+otherwise be there twice), and a cue of theirs that starts inside the hole starts at the
+hole's end instead. A hole whose request fails or comes back empty stays a hole and is
+not an error.
 
 ## Cues, and how a break is placed on them
 
@@ -180,14 +203,21 @@ whole episode.
   named cues: compared as bare letters and digits, case folded, everything else stripped,
   Unicode-aware so that umlauts are letters. A transcript word with no letter or digit in
   it is dropped from the sequence first, so a quote matches across standalone
-  punctuation. At most six tokens of the quote are used, from the front. Found exactly
-  once, the first matched word's start is the break's start. Found more than once, the
-  segment is refused as ambiguous. Not found, the first token is dropped and it is tried
+  punctuation. The quote's letters and the words' letters are compared run together,
+  starting and ending on a word boundary, so "80,000" in the quote matches the words
+  `80` `,000`. At most six tokens of the quote are used, from the front. Found, the first
+  matched word's start is the break's start; found more than once, the last place it is
+  found is used, which removes the least. A place whose first word has no duration is not
+  a place, and is passed over. Not found, the first token is dropped and it is tried
   again, down to three tokens — every retry moving the start later, never earlier. Fewer
   than three tokens is refused.
-* **The end is where the last named cue ends.** No quote is asked for it: the cue that
-  opens a break usually opens with the host still talking, but the cue that closes one
-  closes with it.
+* A quote found at several places starts at the last of them, except that the whole quote
+  found at the opening of the first named cue starts there.
+* **The end is where the break's quoted last words end**: the last place they are found
+  in the last named cue (at least 6 letters), otherwise among all the named cues (at least
+  12 letters, worn down from the end, every retry moving the end earlier); and never later
+  than the end the cue holding that word gives itself. Last words found nowhere refuse the
+  segment.
 * A break whose end is not after its start — a first word stamped past the last cue's
   end — is refused; so is one shorter than two margins.
 * A cut runs from the start plus one margin to the end less one margin. Cuts are then
@@ -201,6 +231,7 @@ whole episode.
 | 6 / 3 | `plan.maxTokens` / `plan.minTokens` | how much of a quote is matched on, and how short it may wear down to |
 | 0.5 | `plan.minConfidence` | below this the model's segment is ignored |
 | 600 s | `plan.longestBreak` | a single cut longer than this refuses the whole plan |
+| 10 s | `episode.shortestHole` | a stretch with no words at least this long is transcribed again |
 | 0.2 | `plan.mostOfAnEpisode` | cuts totalling more than this share of the episode refuse the whole plan |
 | 3 s | `mp3.minimumSeconds` | fewer seconds of parsable frames and the publisher's reply is not audio |
 | `sponsor_read`, `host_endorsement`, `cross_promo` | `plan.cuttable` | the only categories ever cut |
@@ -241,7 +272,7 @@ port that changes it silently breaks the one tool that can prove the one rule.
 
 | file | written | what it is |
 |---|---|---|
-| `source.json` | when a feed names the episode | `{"url": <publisher enclosure>, "feed": <feed url>, "chapters_url": <publisher's marks or null>}`. Its presence is what makes an episode playable: no `source.json`, 404, and nothing goes out. |
+| `source.json` | when a feed names the episode | `{"url": <publisher enclosure>, "feed": <feed url>, "chapters_url": <publisher's marks or null>, "language": <two letters, absent when the feed names none>}`. Its presence is what makes an episode playable: no `source.json`, 404, and nothing goes out. |
 | `audio.mp3` | first play | when cut: the ID3 chapter tag (only if there are marks), then the kept frames — the publisher's own tag, Xing/Info frame and any bytes between frames are gone. Otherwise the publisher's bytes exactly as fetched. |
 | `chapters.json` | first play | the marks on the served timeline |
 | `transcript.vtt` | first play | the transcript on the served timeline |

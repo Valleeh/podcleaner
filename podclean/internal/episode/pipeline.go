@@ -31,13 +31,13 @@ type result struct {
 // pipeline runs the stages for one episode, in order, and stops at the first one that
 // ends it. It writes nothing; save does.
 func (o *Orchestrator) pipeline(source store.Source) (r result) {
-	if r.raw, r.err = o.Outside.Audio(source.URL); r.err != nil {
+	if r.raw, r.err = o.fetch(source.URL); r.err != nil {
 		return r
 	}
 	if r.file, r.err = checkAudio(source.URL, r.raw); r.err != nil {
 		return r
 	}
-	if r.text, r.err = o.transcribe(r.file); r.err != nil {
+	if r.text, r.err = o.transcribe(r.file, source.Language); r.err != nil {
 		return r
 	}
 	if r.reply, r.err = o.findAds(source, r.text); r.err != nil {
@@ -46,6 +46,34 @@ func (o *Orchestrator) pipeline(source store.Source) (r result) {
 	r.plan = plan.Build(r.text, r.reply.Segments, r.file.Seconds())
 	r.served, r.chapters, r.vtt = render(r)
 	return r
+}
+
+// leastMaster is how small a plain client's copy may be next to the podcatcher's and
+// still be taken for the master. The same line plan draws at a fifth of an episode: no
+// real show is that much advertising, so a copy smaller still is something else -- a
+// trailer, a preview -- and would be served for good.
+const leastMaster = 0.8
+
+// fetch is the episode's audio: the publisher's master where it serves one, else the
+// copy a podcatcher gets.
+//
+// A publisher that stitches spots in for podcatchers serves its master to a plain client,
+// and the stitched copy reuses the master's frames byte for byte: one 3.8 h episode's
+// master was its stitched copy without exactly its three German spots, 114.8 s. What is
+// not fetched need not be found -- a spot in another language was the hardest thing
+// there was to find. A plain copy is taken only when it is audio, no larger than the
+// podcatcher's (by HEAD, without fetching it) and not much smaller; a publisher that
+// serves everyone the same bytes passes, and nothing changes for it.
+func (o *Orchestrator) fetch(url string) ([]byte, error) {
+	if master, err := o.Outside.Master(url); err == nil {
+		size, stitched := float64(len(master)), float64(o.Outside.AudioLength(url))
+		if stitched > 0 && size <= stitched && size >= leastMaster*stitched {
+			if _, err := mp3.Parse(master); err == nil {
+				return master, nil
+			}
+		}
+	}
+	return o.Outside.Audio(url)
 }
 
 // checkAudio is the question the cutter asks, asked first: do these bytes parse as MP3
@@ -60,21 +88,54 @@ func checkAudio(url string, raw []byte) (*mp3.File, error) {
 	return file, nil
 }
 
-// transcribe sends the episode up in pieces and puts the answers back on one timeline.
-func (o *Orchestrator) transcribe(file *mp3.File) (*transcript.Transcript, error) {
+// The two models this server transcribes with. Whisper hears the episode: $0.012 an hour,
+// its timings right, and English and German both where the feed names English. But it
+// misses what is spoken over music -- the first half minute of nearly every sponsor read
+// in one episode, over its jingle -- and sent the same stretch again, alone or with
+// speech before it, it misses it again. Grok heard every one of those stretches, timed
+// to 0.1 s against a hand-made reference; at eight times the price it is asked only
+// about the holes, two minutes or so of a four-hour episode.
+const (
+	episodeModel = "openai/whisper-large-v3-turbo"
+	holeModel    = "x-ai/grok-stt-1.0"
+)
+
+// shortestHole is the shortest stretch with no words in it that is sent to the
+// transcriber again. Whisper answered the jingle and first words of nearly every break in
+// one episode with nothing, 12 to 27 s each. A pause between sentences is a second or
+// two; a music bed that really is empty costs one short request.
+const shortestHole = 10.0
+
+// transcribe sends the episode up in pieces and puts the answers back on one timeline,
+// then sends every hole in that timeline up once more, to the other model.
+//
+// A hole that fails again stays a hole, as it was before it was asked about: the first
+// pass is already a transcript, and a word that is missing only leaves advertising in.
+func (o *Orchestrator) transcribe(file *mp3.File, language string) (*transcript.Transcript, error) {
 	var parsed []transcript.Piece
 	for _, piece := range file.Pieces(o.MaxBytes) {
-		body, err := o.Outside.Transcribe(piece.Data)
-		if err != nil {
-			return nil, err
-		}
-		answer, err := transcript.Parse(body, piece.Start)
+		answer, err := o.hear(piece, episodeModel, language)
 		if err != nil {
 			return nil, err
 		}
 		parsed = append(parsed, answer)
 	}
+	for _, hole := range transcript.Join(parsed, file.Seconds()).Holes(shortestHole, file.Seconds()) {
+		for _, piece := range file.Within(hole, o.MaxBytes) {
+			if answer, err := o.hear(piece, holeModel, language); err == nil {
+				parsed = append(parsed, answer.Filling(hole))
+			}
+		}
+	}
 	return transcript.Join(parsed, file.Seconds()), nil
+}
+
+func (o *Orchestrator) hear(piece mp3.Piece, model, language string) (transcript.Piece, error) {
+	body, err := o.Outside.Transcribe(piece.Data, model, language)
+	if err != nil {
+		return transcript.Piece{}, err
+	}
+	return transcript.Parse(body, piece.Start)
 }
 
 // findAds asks the models what is advertising, with the publisher's own chapter marks as

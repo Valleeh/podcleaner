@@ -28,6 +28,7 @@ var (
 	enclosurePattern = regexp.MustCompile(`<enclosure[^>]*>`)
 	urlPattern       = regexp.MustCompile(`(?i)\burl\s*=\s*("[^"]*"|'[^']*')`)
 	typePattern      = regexp.MustCompile(`(?i)\btype\s*=\s*("[^"]*"|'[^']*')`)
+	languagePattern  = regexp.MustCompile(`(?i)<language>\s*([a-z]{2})\b`)
 	nsPattern        = regexp.MustCompile(
 		`xmlns:([A-Za-z_][A-Za-z0-9_.-]*)\s*=\s*["']` + regexp.QuoteMeta(podcastNamespace) + `["']`)
 )
@@ -37,6 +38,16 @@ type Episode struct {
 	GUID        string
 	Enclosure   string
 	ChaptersURL *string
+	Language    string // the channel's, as two letters, or "" when it names none
+}
+
+// language is the two letters the channel's <language> begins with: "en" for "en-us".
+// The transcriber takes ISO-639-1 and nothing longer.
+func language(doc string) string {
+	if m := languagePattern.FindStringSubmatch(doc); m != nil {
+		return strings.ToLower(m[1])
+	}
+	return ""
 }
 
 // ErrNothingBindable is a feed with no episode in it this server can address. It is
@@ -53,6 +64,7 @@ func Rewrite(document []byte, feedURL, base string) ([]byte, []Episode, error) {
 		prefix = m[1]
 	}
 
+	lang := language(doc)
 	var episodes []Episode
 	seen := map[string]int{}
 	for _, item := range itemPattern.FindAllString(doc, -1) {
@@ -78,7 +90,7 @@ func Rewrite(document []byte, feedURL, base string) ([]byte, []Episode, error) {
 			return item
 		}
 
-		episode := Episode{GUID: guid, Enclosure: origin}
+		episode := Episode{GUID: guid, Enclosure: origin, Language: lang}
 		if prefix != "" {
 			if was, ok := attr(sidecar(item, prefix, "chapters"), urlPattern); ok && was != "" {
 				episode.ChaptersURL = &was

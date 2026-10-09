@@ -71,11 +71,12 @@ def test_a_publisher_that_fails_is_reported_and_nothing_is_kept(outside, tmp_pat
         assert requests.get(f"{podclean}/podcast", params=episode).status_code == 502
 
         # Nothing was kept: no sidecars appeared, and asking again tries the publisher
-        # again rather than serving or remembering a failure.
+        # again rather than serving or remembering a failure -- each play asking twice,
+        # as a plain client for the master and then as a podcatcher.
         assert requests.get(f"{podclean}/chapters", params=episode).status_code == 404
         assert requests.get(f"{podclean}/transcript", params=episode).status_code == 404
         assert requests.get(f"{podclean}/podcast", params=episode).status_code == 502
-        assert outside.counts()["/episode.mp3"] == 2
+        assert outside.counts()["/episode.mp3"] == 4
 
 
 def test_a_publisher_that_answers_with_something_that_is_not_audio_is_refused(outside, tmp_path):
@@ -100,10 +101,11 @@ def test_a_publisher_that_answers_with_something_that_is_not_audio_is_refused(ou
 
         # Nothing was kept, and nothing was paid for on the way: a page that is not audio
         # is not transcribed and not classified, and the next play asks the publisher
-        # again rather than serving what it got.
+        # again rather than serving what it got -- each play asking twice, as a plain
+        # client for the master and then as a podcatcher.
         assert requests.get(f"{podclean}/chapters", params=episode).status_code == 404
         assert requests.get(f"{podclean}/transcript", params=episode).status_code == 404
         assert "/audio/transcriptions" not in outside.counts()
         assert "/chat/completions" not in outside.counts()
         assert requests.get(f"{podclean}/podcast", params=episode).status_code == 502
-        assert outside.counts()["/episode.mp3"] == 2
+        assert outside.counts()["/episode.mp3"] == 4

@@ -205,7 +205,7 @@ Compose reads these from `.env`:
 | `PODCLEANER_BASE_URL` | Reachable address written into feed links | required |
 | `PODCLEANER_LLM_API_KEY` | OpenRouter key, for transcription and classification | required |
 | `PODCLEANER_PORT` | Published host port | `8080` |
-| `PODCLEANER_LLM_SPEC` | Classification model or cascade | `cascade:qwen/qwen3.7-flash>deepseek/deepseek-v4-flash` |
+| `PODCLEANER_LLM_SPEC` | Classification model or cascade | `qwen/qwen3.7-flash` |
 
 A cascade is `cascade:screening-model>verifier-model`; a bare model id is one pass. The
 server's full configuration is in [the contract](docs/contract.md).

@@ -85,11 +85,26 @@ type Piece struct {
 // garbled at a boundary can only make a quote unfindable, which leaves an advertisement
 // in, and that is the direction this project errs in.
 func (f *File) Pieces(maxBytes int) []Piece {
+	return f.pieces(0, len(f.frames), maxBytes)
+}
+
+// Within is the same split over only the frames that start inside s: one stretch of the
+// episode sent again on its own.
+func (f *File) Within(s timeline.Span, maxBytes int) []Piece {
+	from, to := 0, 0
+	for from < len(f.frames) && f.starts[from] < s.Start {
+		from++
+	}
+	for to = from; to < len(f.frames) && f.starts[to] < s.End; to++ {
+	}
+	return f.pieces(from, to, maxBytes)
+}
+
+func (f *File) pieces(from, end, maxBytes int) []Piece {
 	var pieces []Piece
-	from := 0
-	for from < len(f.frames) {
+	for from < end {
 		to, size := from, 0
-		for to < len(f.frames) && (to == from || size+f.frames[to].Length <= maxBytes) {
+		for to < end && (to == from || size+f.frames[to].Length <= maxBytes) {
 			size += f.frames[to].Length
 			to++
 		}
@@ -114,12 +129,17 @@ func (f *File) Cut(tl timeline.Timeline) []byte {
 	return out
 }
 
+// span is frames from to to, and nothing that lies between them.
+//
+// Where a publisher splices a spot in, a few hundred bytes of broken frame are left
+// between two whole ones. Sent along, they stopped the transcriber dead at the splice: it
+// answered 1512 s of a 2097 s piece, and the ten minutes after it had no words at all.
 func (f *File) span(from, to int) []byte {
-	if from >= to {
-		return nil
+	var out []byte
+	for _, fr := range f.frames[from:to] {
+		out = append(out, f.data[fr.Offset:fr.Offset+fr.Length]...)
 	}
-	first, last := f.frames[from], f.frames[to-1]
-	return f.data[first.Offset : last.Offset+last.Length]
+	return out
 }
 
 // walk finds the frames, skipping whatever is not one.

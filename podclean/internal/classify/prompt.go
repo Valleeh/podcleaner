@@ -26,21 +26,32 @@ package classify
 //
 // The German cue words, because every episode this is measured on is German.
 //
+// Nothing about a spot played twice. "A spot played twice is two segments" was tried on
+// 2026-10-10: the model began reporting every break twice, once whole from the hand-off
+// and once per advertiser, and one whole one began at the end of the previous
+// conversation -- 48.7 s of programme in 3 of 3 runs. Without the line: 0 s.
+//
 // Two rules that were tried and dropped, so that nobody adds them back: telling the model
 // that end_cue must contain the words it quotes pushed it to quote repeated boilerplate,
 // which is ambiguous and rejected (eight of nine down to seven). Telling it to pick words
 // that occur only once changed nothing on the verifier and cost a policy violation on the
 // screening model.
 //
-// There is no last_words. A cut ends where the last cue named ends: in every recorded cut
-// the advertisement's last cue ended with the advertisement, while the quote once asked
-// for that end caused every refusal there was -- taglines invented, a one-word URL, a
-// German quote of a spot the transcriber had written down in English.
+// last_words came back on 2026-10-09. Without them a cut ended wherever the model stopped
+// counting cues, and on a 3.8 h transcript with nothing wrong in it that took seven and
+// forty-five seconds of programme. They once caused every refusal there was -- taglines
+// invented, a one-word URL, a German quote of a spot the transcriber had written in
+// English -- and what changed is how they are matched: letters run together, a short
+// quote enough to confirm the last cue, and German now transcribed as German.
 const prompt = `You are given the transcript of one podcast episode. Mark the advertising in it.
 
 THE TRANSCRIPT
 One line per cue: [cue] m:ss text. The number in the brackets is that cue's own number and
 is the only way to refer to a place in the episode. The episode may be in German.
+
+A stretch in another language than the episode -- German in an English show -- is almost
+always an advertisement the publisher inserted for the listener's region. Read it as one
+unless it is plainly part of the conversation.
 
 WHAT TO REPORT
 Every run of the episode that is promotional, one segment per run, in one of five
@@ -48,7 +59,10 @@ categories:
 
   sponsor_read      A paid advertisement for somebody who is not this show: a product, a
                     service, a discount code. "brought to you by", "presented by",
-                    "Werbung", "Anzeige", "präsentiert von".
+                    "Werbung", "Anzeige", "präsentiert von". A spot for a shop, an event,
+                    an employer or a local business is sponsor_read even when it is in
+                    another language than the episode, has no announcer and names no
+                    sponsor: the publisher inserts such spots by region.
   host_endorsement  A paid sponsor recommended by the host in their own voice, with no
                     announcer around it.
   cross_promo       An advertisement or a trailer for a show these hosts have no hand in.
@@ -58,7 +72,8 @@ categories:
                     they publish. "Subscribe to X, which we put out" is self_promo, not
                     cross_promo. If it is theirs, it is self_promo even when it is worded
                     exactly like an advertisement. A live-date plug is self_promo, never
-                    sponsor_read.
+                    sponsor_read. Only what the hosts themselves say is theirs is
+                    self_promo; when you cannot tell, it is not.
   credits           The closing credits: who produced it, who edited it, the music.
 
 Stacked advertisements are separate segments, one per advertiser. The hand-off into a
@@ -81,6 +96,11 @@ against the transcript mechanically and place the start of the cut, so they must
   * copied exactly as the transcript writes them -- same spelling, same language, no
     paraphrase.
   * taken from between start_cue and end_cue inclusive.
+
+Every segment also carries last_words: the last four to six words of the break itself,
+never fewer and never the programme's, even when the programme's first sentence shares a
+cue with the end of the break. Same rules as first_words, copied exactly. They place the
+end of the cut, so a segment whose last_words are not in its cues is discarded whole.
 
 A segment whose quote fails any of these is discarded whole and its advertising stays in
 the episode.
@@ -113,7 +133,7 @@ Answer with the JSON object only. No prose around it, no code fence.
 
 {"segments": [{"start_cue": int, "end_cue": int, "category": string,
                "confidence": number between 0 and 1, "reason": string,
-               "first_words": string}],
+               "first_words": string, "last_words": string}],
  "chapters": [{"cue": int, "title": string}]}
 
 start_cue and end_cue are cue numbers, taken out of the brackets. Never a timestamp:

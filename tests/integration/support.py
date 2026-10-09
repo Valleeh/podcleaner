@@ -134,6 +134,7 @@ class Outside:
         self.hits: dict[str, int] = {}
         self.routes: dict[str, tuple[int, str, object]] = {}
         self.limits: dict[str, int] = {}
+        self.plain: dict[str, bytes] = {}
         self.unknown: list[str] = []
         self.lock = threading.Lock()
         self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), self._handler())
@@ -179,6 +180,16 @@ class Outside:
         if refuses_over is not None:
             self.limits[path] = refuses_over
 
+    def serves_plain_clients(self, path: str, body) -> None:
+        """Answer ``path`` with ``body`` to anything that does not look like a podcatcher.
+
+        Publishers who stitch advertising in serve the ad-free master to plain clients and
+        the stitched copy to podcatchers; the podcatcher is told apart by its user-agent,
+        ``AntennaPod`` as docs/contract.md names it.  Everyone gets what ``serves`` set
+        for ``path`` until this is called.
+        """
+        self.plain[path] = _encode(body)
+
     def fails(self, path: str) -> None:
         """Answer this path with an error, for the promise about a publisher that breaks."""
         self.serves(path, "text/plain", b"the publisher is having a bad day", status=500)
@@ -190,14 +201,21 @@ class Outside:
             def do_GET(self):
                 self._answer()
 
+            def do_HEAD(self):
+                self._answer(head=True)
+
             def do_POST(self):
                 self._answer(self.rfile.read(int(self.headers.get("Content-Length", 0))))
 
-            def _answer(self, request_body: bytes = b""):
+            def _answer(self, request_body: bytes = b"", head: bool = False):
                 path = self.path.split("?")[0]
                 with outside.lock:
-                    outside.hits[path] = outside.hits.get(path, 0) + 1
+                    counted = f"HEAD {path}" if head else path
+                    outside.hits[counted] = outside.hits.get(counted, 0) + 1
                     known = outside.routes.get(path)
+                    plain = outside.plain.get(path)
+                if known and plain is not None and "AntennaPod" not in self.headers.get("User-Agent", ""):
+                    known = (known[0], known[1], plain)
                     if known is None:
                         outside.unknown.append(path)
                 # A path this test never described is answered rather than raised on. A
@@ -222,7 +240,8 @@ class Outside:
                 self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
-                self.wfile.write(body)
+                if not head:
+                    self.wfile.write(body)
 
             def log_message(self, *_):
                 pass

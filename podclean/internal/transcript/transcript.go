@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"sort"
 	"strings"
 
 	"podclean/internal/timeline"
@@ -42,6 +44,13 @@ type Piece struct {
 	start float64
 	cues  []Cue
 	words []Word
+	hole  *timeline.Span // set when this reply is about a hole, sent again on its own
+}
+
+// Filling marks this reply as the one about hole, a stretch the first replies left empty.
+func (p Piece) Filling(hole timeline.Span) Piece {
+	p.hole = &hole
+	return p
 }
 
 var errNotVerbose = errors.New("not a verbose_json transcription")
@@ -87,28 +96,97 @@ func Parse(body []byte, start float64) (Piece, error) {
 // Numbering each piece from 1 again would give several cues the same number and place
 // every break after the first one in the wrong episode entirely.
 //
+// A reply about a hole lands inside another reply's stretch, so everything is put in
+// time order before it is numbered. Pieces come in the order they were asked for, so
+// "before" is earlier in the list, and what a reply before said about a hole gives way to
+// the hole's own reply in two ways:
+//
+//   - the words it parked there, all with no duration, at the far end, are dropped: they
+//     would be the same words twice, and a quote would be placed on the parked copy;
+//   - a cue it claimed begins inside the hole begins at the hole's end instead. After a
+//     German pre-roll the next segment said it began seven seconds before its first word,
+//     and the spot's own words, when they came back, would have hung off that programme cue.
+//
 // seconds is how long the audio is, and it is the only bound on the last cue below.
 func Join(pieces []Piece, seconds float64) *Transcript {
 	t := &Transcript{}
 	var words []Word
-	for _, p := range pieces {
+	for i, p := range pieces {
+		var later []timeline.Span
+		for _, q := range pieces[i+1:] {
+			if q.hole != nil {
+				later = append(later, *q.hole)
+			}
+		}
 		at := p.start
 		for _, c := range p.cues {
 			c.Start += at
 			c.End += at
-			c.Index = len(t.Cues) + 1
 			c.Words = nil
+			for _, h := range later {
+				if c.Start >= h.Start && c.Start < h.End {
+					c.Start = math.Min(h.End, c.End)
+				}
+			}
 			t.Cues = append(t.Cues, c)
 		}
 		for _, w := range p.words {
 			w.Start += at
 			w.End += at
+			if w.End == w.Start && inside(w.Start, later) {
+				continue
+			}
 			words = append(words, w)
 		}
+	}
+	sort.SliceStable(t.Cues, func(i, j int) bool { return t.Cues[i].Start < t.Cues[j].Start })
+	sort.SliceStable(words, func(i, j int) bool { return words[i].Start < words[j].Start })
+	for i := range t.Cues {
+		t.Cues[i].Index = i + 1
 	}
 	t.attach(words)
 	t.closeLastCue(seconds)
 	return t
+}
+
+// inside is whether at lies in one of the spans, both ends included: a parked word sits
+// exactly on the far end of its hole.
+func inside(at float64, spans []timeline.Span) bool {
+	for _, s := range spans {
+		if at >= s.Start && at <= s.End {
+			return true
+		}
+	}
+	return false
+}
+
+// Holes are the stretches of at least least seconds with no timed word in them, from the
+// start of the audio to seconds. What a segment claims to span does not count: only words
+// say that something was heard. A word with no duration is not a timing (see
+// closeLastCue) and does not fill one.
+func (t *Transcript) Holes(least, seconds float64) []timeline.Span {
+	var said []timeline.Span
+	for _, c := range t.Cues {
+		for _, w := range c.Words {
+			if w.End > w.Start {
+				said = append(said, timeline.Span{Start: w.Start, End: w.End})
+			}
+		}
+	}
+	var holes []timeline.Span
+	at := 0.0
+	for _, s := range timeline.Merge(said) {
+		if s.Start-at >= least {
+			holes = append(holes, timeline.Span{Start: at, End: s.Start})
+		}
+		if s.End > at {
+			at = s.End
+		}
+	}
+	if seconds-at >= least {
+		holes = append(holes, timeline.Span{Start: at, End: seconds})
+	}
+	return holes
 }
 
 // attach hangs every word off the last cue that had started by the word's own start.

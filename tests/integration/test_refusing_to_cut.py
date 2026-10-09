@@ -6,6 +6,8 @@ or thresholds. An incomplete model reply also stays retryable and publishes no s
 
 from __future__ import annotations
 
+import json
+
 import requests
 
 from tests.integration.support import model_reply, podclean_server
@@ -31,7 +33,7 @@ def test_a_break_the_model_is_only_guessing_at_is_left_in(outside, tmp_path, epi
 
 
 def test_a_reply_the_model_mangles_leaves_the_episode_whole(outside, tmp_path, episode, published):
-    # Not a schema this server can read, and not repairable by asking again: a stage that
+    # Not a schema this server can read, asked once more and mangled again: a stage that
     # did not finish is not a verdict about the audio.
     outside.serves("/chat/completions", "application/json", {
         "choices": [{"message": {"content": '{"segments": [{"start_cue": 68, "end_'}}],
@@ -46,7 +48,31 @@ def test_a_reply_the_model_mangles_leaves_the_episode_whole(outside, tmp_path, e
             for route in ("chapters", "transcript"):
                 assert requests.get(f"{server}/{route}", params=published).status_code == 404
             assert outside.counts()["/episode.mp3"] == attempt
-            assert outside.counts()["/chat/completions"] == attempt
+            assert outside.counts()["/chat/completions"] == 4 * attempt
+
+
+def test_a_reply_mangled_once_is_asked_for_again(outside, tmp_path, episode, published):
+    # A provider once cut a reply off mid-JSON. Failing then serves every advertisement and
+    # the podcatcher keeps that file for good, so the model is asked once more.
+    answers = [{"choices": [{"message": {"content": '{"segments": [{"start_cue": 68, "end_'}}]},
+               model_reply([b.as_segment() for b in episode.breaks]),
+               model_reply([b.as_segment() for b in episode.breaks])]
+    outside.serves("/chat/completions", "application/json",
+                   lambda _body: json.dumps(answers.pop(0)).encode("utf-8"))
+    with podclean_server(outside, tmp_path) as server:
+        requests.get(f"{server}/rss", params=published)
+        played = requests.get(f"{server}/podcast", params=published).content
+    assert len(played) < len(episode.mp3.read_bytes())
+    assert outside.counts()["/chat/completions"] == 3
+
+
+def test_a_break_whose_last_words_are_not_in_it_is_left_in(outside, tmp_path, episode, published):
+    # The end of a cut is placed on the break's last words. Without them there is no way
+    # to tell where the break ends from where the model stopped counting.
+    read = episode.breaks[1]
+    played = _play(outside, tmp_path, published, model_reply([
+        {**read.as_segment(), "last_words": "words nobody said at the end"}]))
+    assert played == episode.mp3.read_bytes()
 
 
 def test_a_break_whose_words_are_not_in_the_transcript_is_left_in(outside, tmp_path, episode, published):
@@ -73,10 +99,10 @@ def test_a_break_named_by_a_cue_the_transcript_never_had_is_left_in(outside, tmp
 
 
 def test_a_break_that_would_swallow_most_of_the_episode_is_not_cut(outside, tmp_path, episode, published):
-    # The first advertising's own words and the last advertising's own last cue, claimed
+    # The first advertising's own words and the last advertising's own last words, claimed
     # as one continuous break. Everything between them is the programme.
     first, last = episode.breaks[0], episode.breaks[-1]
     played = _play(outside, tmp_path, published, model_reply([
         {**first.as_segment(reason="claims the pre-roll, the programme and the promo block"),
-         "end_cue": last.last_cue}]))
+         "end_cue": last.last_cue, "last_words": last.last_words}]))
     assert played == episode.mp3.read_bytes()

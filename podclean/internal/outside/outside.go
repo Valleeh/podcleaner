@@ -29,9 +29,6 @@ import (
 // itself to compare against, would then be comparing a file with itself.
 const podcatcherUserAgent = "AntennaPod/3.6.0"
 
-// transcriptionModel is the only model this server transcribes with.
-const transcriptionModel = "openai/whisper-large-v3-turbo"
-
 const (
 	feedTimeout  = 120 * time.Second
 	audioTimeout = 600 * time.Second
@@ -95,6 +92,32 @@ func (c *Client) Audio(url string) ([]byte, error) {
 	return c.get(url, audioTimeout, http.Header{"User-Agent": {podcatcherUserAgent}})
 }
 
+// Master fetches one episode as a plain client: from a publisher that stitches spots in
+// for podcatchers, that is the master the spots are stitched into.
+func (c *Client) Master(url string) ([]byte, error) {
+	return c.get(url, audioTimeout, nil)
+}
+
+// AudioLength is how many bytes Audio would fetch, asked with HEAD, or 0 when the answer
+// does not say.
+func (c *Client) AudioLength(url string) int64 {
+	req, err := http.NewRequest(http.MethodHead, url, nil)
+	if err != nil {
+		return 0
+	}
+	req.Header.Set("User-Agent", podcatcherUserAgent)
+	client := &http.Client{Timeout: feedTimeout, Transport: &http.Transport{DisableCompression: true}}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || resp.ContentLength < 0 {
+		return 0
+	}
+	return resp.ContentLength
+}
+
 // PublisherChapters is the publisher's own marks, where the feed named any: url is nil or
 // empty when it did not.
 //
@@ -129,7 +152,11 @@ func (c *Client) PublisherChapters(url *string) []timeline.Chapter {
 //
 // Both timestamp granularities are asked for, and both are needed: the segments become
 // the numbered cues the model answers about, and the words are what a cut is placed on.
-func (c *Client) Transcribe(audio []byte) ([]byte, error) {
+//
+// language, when the feed named one, is sent too. Left to guess, the transcriber guesses
+// from the first thing it hears: an English episode opening on a German advertisement
+// came back with its first minutes translated into German.
+func (c *Client) Transcribe(audio []byte, model, language string) ([]byte, error) {
 	var body bytes.Buffer
 	form := multipart.NewWriter(&body)
 
@@ -143,12 +170,16 @@ func (c *Client) Transcribe(audio []byte) ([]byte, error) {
 	if _, err := part.Write(audio); err != nil {
 		return nil, fmt.Errorf("cannot build the transcription request: %v", err)
 	}
-	for _, field := range [][2]string{
-		{"model", transcriptionModel},
+	fields := [][2]string{
+		{"model", model},
 		{"response_format", "verbose_json"},
 		{"timestamp_granularities[]", "segment"},
 		{"timestamp_granularities[]", "word"},
-	} {
+	}
+	if language != "" {
+		fields = append(fields, [2]string{"language", language})
+	}
+	for _, field := range fields {
 		if err := form.WriteField(field[0], field[1]); err != nil {
 			return nil, fmt.Errorf("cannot build the transcription request: %v", err)
 		}
@@ -170,6 +201,11 @@ func (c *Client) Complete(model, system, user string) (string, error) {
 		// with one right answer, not a writing one, and the answer is parsed.
 		"temperature":     0,
 		"response_format": map[string]string{"type": "json_object"},
+		// A ceiling on the model's thinking, not on its answer. Measured three times each on
+		// one 3.7 h transcript: capped at 4000 tokens, qwen3.7-flash found as much as
+		// uncapped (9-16k tokens of reasoning) for a third of the price, $0.004 against
+		// $0.012-0.014, in half the time.
+		"reasoning": map[string]int{"max_tokens": 4000},
 	})
 	if err != nil {
 		return "", fmt.Errorf("cannot build the request to %s: %v", model, err)
