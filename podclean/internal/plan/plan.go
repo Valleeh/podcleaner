@@ -185,6 +185,10 @@ var errNotFound = errors.New("not in the cues the segment names")
 // every place is inside the cues the model named, and the last removes the least. A spot
 // played twice back to back and named as one break opens with the same words twice --
 // the last in one episode did, and refusing it left forty seconds of it in.
+//
+// A place whose first word has no duration is not a place: it is a word the transcriber
+// parked at the far end of a stretch it dropped (see transcript.closeLastCue), and the
+// last copy of a quote being one of those started a cut twenty seconds into its break.
 func opening(words []transcript.Word, quote string) (float64, error) {
 	tokens := normalise(quote)
 	if len(tokens) < minTokens {
@@ -195,8 +199,14 @@ func opening(words []transcript.Word, quote string) (float64, error) {
 	}
 	spoken, said := spokenWords(words)
 	for len(tokens) >= minTokens {
-		if found := matches(said, tokens); len(found) > 0 {
-			return spoken[found[len(found)-1]].Start, nil
+		var timed []transcript.Word
+		for _, i := range matches(said, tokens) {
+			if spoken[i].End > spoken[i].Start {
+				timed = append(timed, spoken[i])
+			}
+		}
+		if len(timed) > 0 {
+			return timed[len(timed)-1].Start, nil
 		}
 		tokens = tokens[1:]
 	}

@@ -198,7 +198,8 @@ ends it. A hole whose request fails or comes back empty stays a hole and is not 
   starting and ending on a word boundary, so "80,000" in the quote matches the words
   `80` `,000`. At most six tokens of the quote are used, from the front. Found, the first
   matched word's start is the break's start; found more than once, the last place it is
-  found is used, which removes the least. Not found, the first token is dropped and it is tried
+  found is used, which removes the least. A place whose first word has no duration is not
+  a place, and is passed over. Not found, the first token is dropped and it is tried
   again, down to three tokens — every retry moving the start later, never earlier. Fewer
   than three tokens is refused.
 * **The end is where the last named cue ends.** No quote is asked for it: the cue that

@@ -225,6 +225,33 @@ def test_a_quote_said_twice_in_its_break_is_cut_from_the_later_one(
             decode_seconds(episode.mp3) - lost, abs=1.0)
 
 
+def test_a_quote_parked_again_with_no_duration_is_not_cut_from(
+        outside, tmp_path, episode, published):
+    """The same words twice, once spoken and once parked with no length, start at the first.
+
+    Around a stretch it dropped, the transcriber parks the lost words at its far end, all
+    stamped with an end equal to their start. Those are not a place in the audio, and the
+    last copy of a quote being one of them started a cut twenty seconds into its break.
+    """
+    brk = episode.breaks[0]
+    later = next(c for c in episode.cues if c.number == brk.first_cue + 2)
+    reply = json.loads(episode.transcript)
+    parked = {round(w.start, 3): text for w, text in zip(later.words, brk.first_words.split())}
+    for word in reply["words"]:
+        if word["start"] in parked:
+            word["word"], word["end"] = f" {parked[word['start']]}", word["start"]
+    outside.serves("/audio/transcriptions", "application/json", reply)
+    outside.serves("/chat/completions", "application/json", model_reply([brk.as_segment()]))
+
+    with podclean_server(outside, tmp_path,
+                         PODCLEANER_TRANSCRIBE_MAX_BYTES=str(1 << 30)) as podclean:
+        requests.get(f"{podclean}/rss", params=published)
+        played = requests.get(f"{podclean}/podcast", params=published).content
+        (tmp_path / "played.mp3").write_bytes(played)
+        assert decode_seconds(tmp_path / "played.mp3") == pytest.approx(
+            decode_seconds(episode.mp3) - removed([brk]), abs=1.0)
+
+
 def test_a_quote_the_transcriber_split_into_two_words_is_found(
         outside, tmp_path, episode, published):
     """The words a cut is placed on are not always split where the quote is.

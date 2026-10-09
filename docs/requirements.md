@@ -88,6 +88,10 @@ until nothing is missing, and a break inside it is cut as if it had never been s
 last of them.
 *Asserted by* `test_a_quote_said_twice_in_its_break_is_cut_from_the_later_one`.
 
+**13e.** A break is never cut from a copy of its words the transcriber parked with no
+duration.
+*Asserted by* `test_a_quote_parked_again_with_no_duration_is_not_cut_from`.
+
 **13d.** A quote is found however the transcriber split its words.
 *Asserted by* `test_a_quote_the_transcriber_split_into_two_words_is_found`.
 
