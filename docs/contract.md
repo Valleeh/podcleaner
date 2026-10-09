@@ -41,11 +41,16 @@ success; anything else is a failure carrying `<url> answered <status>: ` and the
 endpoint, once the audio is in hand, it is a `failed` verdict with that text in `error`,
 and the listener is served the publisher's own audio with a 200.
 
-**The publisher's audio.** `GET` the enclosure URL with `user-agent: AntennaPod/3.6.0`
-and a 600 s receive timeout, body not decoded. The user-agent is not cosmetic: publishers
-who stitch advertising in serve the ad-free master to plain clients and the stitched copy
-to podcatchers, so a request that did not look like a podcatcher would fetch audio no
-listener is ever served, and `./run verify` would compare a file against itself.
+**The publisher's audio.** First the master: `GET` the enclosure URL as a plain client (no
+user-agent set) and `HEAD` it with `user-agent: AntennaPod/3.6.0`, 600 s, body not
+decoded. Publishers who stitch advertising in serve the ad-free master to plain clients
+and the stitched copy to podcatchers, reusing the master's frames byte for byte. The plain
+copy is used when it parses as audio, is no larger than the `Content-Length` the `HEAD`
+answered, and at least 0.8 of it (`episode.leastMaster`: a smaller copy is a trailer or a
+preview, not the episode without its spots). Otherwise — no length, a failed fetch, not
+audio, out of that band — the episode is fetched again with `user-agent:
+AntennaPod/3.6.0`, which is what was fetched before 2026-10-10. `./run verify` re-fetches
+both and recognises a cut made from the master by its `source_sha256`.
 
 **The publisher's feed.** `GET`, 120 s, *without* the podcatcher user-agent: the document
 is the same for every client.

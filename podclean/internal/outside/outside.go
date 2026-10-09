@@ -95,6 +95,32 @@ func (c *Client) Audio(url string) ([]byte, error) {
 	return c.get(url, audioTimeout, http.Header{"User-Agent": {podcatcherUserAgent}})
 }
 
+// Master fetches one episode as a plain client: from a publisher that stitches spots in
+// for podcatchers, that is the master the spots are stitched into.
+func (c *Client) Master(url string) ([]byte, error) {
+	return c.get(url, audioTimeout, nil)
+}
+
+// AudioLength is how many bytes Audio would fetch, asked with HEAD, or 0 when the answer
+// does not say.
+func (c *Client) AudioLength(url string) int64 {
+	req, err := http.NewRequest(http.MethodHead, url, nil)
+	if err != nil {
+		return 0
+	}
+	req.Header.Set("User-Agent", podcatcherUserAgent)
+	client := &http.Client{Timeout: feedTimeout, Transport: &http.Transport{DisableCompression: true}}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || resp.ContentLength < 0 {
+		return 0
+	}
+	return resp.ContentLength
+}
+
 // PublisherChapters is the publisher's own marks, where the feed named any: url is nil or
 // empty when it did not.
 //

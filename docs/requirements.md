@@ -107,6 +107,12 @@ the model named, however far the model counted; without its last words it is lef
 between them.
 *Asserted by* `test_only_audio_frames_are_sent_to_the_transcriber`.
 
+**13h.** Where the publisher serves its master to a plain client, the episode is cut from
+the master, and what it stitches in for podcatchers is never fetched; a plain copy that
+cannot be the episode without its spots is not used.
+*Asserted by* `test_the_publishers_master_is_cut_where_one_is_served` and
+`test_a_master_that_is_not_the_episode_is_not_used`.
+
 **14.** An episode too long to be transcribed in one request is cut all the same, and its
 chapter marks land where they would have.
 *Asserted by* `test_an_episode_too_big_for_one_transcription_request_is_cut_all_the_same`.

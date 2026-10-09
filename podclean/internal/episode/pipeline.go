@@ -31,7 +31,7 @@ type result struct {
 // pipeline runs the stages for one episode, in order, and stops at the first one that
 // ends it. It writes nothing; save does.
 func (o *Orchestrator) pipeline(source store.Source) (r result) {
-	if r.raw, r.err = o.Outside.Audio(source.URL); r.err != nil {
+	if r.raw, r.err = o.fetch(source.URL); r.err != nil {
 		return r
 	}
 	if r.file, r.err = checkAudio(source.URL, r.raw); r.err != nil {
@@ -46,6 +46,34 @@ func (o *Orchestrator) pipeline(source store.Source) (r result) {
 	r.plan = plan.Build(r.text, r.reply.Segments, r.file.Seconds())
 	r.served, r.chapters, r.vtt = render(r)
 	return r
+}
+
+// leastMaster is how small a plain client's copy may be next to the podcatcher's and
+// still be taken for the master. The same line plan draws at a fifth of an episode: no
+// real show is that much advertising, so a copy smaller still is something else -- a
+// trailer, a preview -- and would be served for good.
+const leastMaster = 0.8
+
+// fetch is the episode's audio: the publisher's master where it serves one, else the
+// copy a podcatcher gets.
+//
+// A publisher that stitches spots in for podcatchers serves its master to a plain client,
+// and the stitched copy reuses the master's frames byte for byte: one 3.8 h episode's
+// master was its stitched copy without exactly its three German spots, 114.8 s. What is
+// not fetched need not be found -- a spot in another language was the hardest thing
+// there was to find. A plain copy is taken only when it is audio, no larger than the
+// podcatcher's (by HEAD, without fetching it) and not much smaller; a publisher that
+// serves everyone the same bytes passes, and nothing changes for it.
+func (o *Orchestrator) fetch(url string) ([]byte, error) {
+	if master, err := o.Outside.Master(url); err == nil {
+		size, stitched := float64(len(master)), float64(o.Outside.AudioLength(url))
+		if stitched > 0 && size <= stitched && size >= leastMaster*stitched {
+			if _, err := mp3.Parse(master); err == nil {
+				return master, nil
+			}
+		}
+	}
+	return o.Outside.Audio(url)
 }
 
 // checkAudio is the question the cutter asks, asked first: do these bytes parse as MP3

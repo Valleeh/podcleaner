@@ -201,6 +201,42 @@ def test_a_stretch_the_transcriber_skipped_is_asked_for_again(
     assert outside.counts()["/audio/transcriptions"] == 2
 
 
+def test_the_publishers_master_is_cut_where_one_is_served(
+        outside, tmp_path, episode, published):
+    """The advertising a publisher stitches in for podcatchers is never fetched at all.
+
+    Asked as a plain client, a publisher that stitches spots in serves its master, whose
+    every frame is the stitched copy's -- measured: one 3.8 h episode's master was its
+    stitched copy without exactly the three German spots, 114.8 s. Here the podcatcher's
+    copy opens on twenty seconds the master does not have; the episode is cut from the
+    master, so those twenty seconds are not in what is served, and every break is.
+    """
+    ffmpeg(["-f", "lavfi", "-i", "anullsrc=channel_layout=mono:sample_rate=44100",
+            "-t", "20", "-c:a", "libmp3lame", "-b:a", "64k", "-y"],
+           writes=tmp_path / "spot.mp3")
+    outside.serves("/episode.mp3", "audio/mpeg",
+                   (tmp_path / "spot.mp3").read_bytes() + episode.mp3.read_bytes())
+    outside.serves_plain_clients("/episode.mp3", episode.mp3.read_bytes())
+    outside.serves("/audio/transcriptions", "application/json", episode.transcriber())
+    assert played_seconds(outside, tmp_path, published) == pytest.approx(
+        decode_seconds(episode.mp3) - removed(episode.breaks), abs=1.0)
+
+
+def test_a_master_that_is_not_the_episode_is_not_used(outside, tmp_path, episode, published):
+    """What a plain client gets is trusted only when it can be the episode without its spots.
+
+    No larger than the podcatcher's copy, and not so much smaller that a fifth of the
+    episode would have been advertising -- a trailer or a preview answered to a plain
+    client would otherwise be served for good. Then the podcatcher's copy is fetched,
+    as it always was.
+    """
+    audio = episode.mp3.read_bytes()
+    outside.serves_plain_clients("/episode.mp3", audio[:len(audio) // 10])
+    assert played_seconds(outside, tmp_path, published) == pytest.approx(
+        decode_seconds(episode.mp3) - removed(episode.breaks), abs=1.0)
+    assert outside.counts()["/episode.mp3"] == 2
+
+
 def test_a_break_named_one_cue_too_far_ends_with_its_last_words(
         outside, tmp_path, episode, published):
     """The model names the cue after the break too; the break's own last words do not move.

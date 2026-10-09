@@ -93,6 +93,14 @@ def verify(feed_url: str, guid: str) -> int:
         stitch, master = work / "stitch.mp3", work / "master.mp3"
         got = _download(origin, stitch, PODCATCHER_USER_AGENT)
         want = verdict.get("source_sha256") or ""
+        if want and got != want and _download(origin, master, PLAIN_USER_AGENT) == want:
+            # The server cuts the publisher's master where one is served: the stitched-in
+            # spots were never fetched, so there is nothing inserted to measure a cut against.
+            print(f"\nthis episode was cut from the publisher's master (sha256:{want}):\n"
+                  f"NOT MEASURABLE      no stitched-in advertising was ever fetched. Whatever was\n"
+                  f"                    removed was in the master, and whether it was advertising\n"
+                  f"                    is not a question this can answer.")
+            return 4
         if want and got != want:
             print(f"the publisher has re-stitched this episode since it was cut\n"
                   f"  cut from  sha256:{want}\n  now serves sha256:{got}\n"
