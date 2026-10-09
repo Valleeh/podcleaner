@@ -88,6 +88,9 @@ until nothing is missing, and a break inside it is cut as if it had never been s
 last of them.
 *Asserted by* `test_a_quote_said_twice_in_its_break_is_cut_from_the_later_one`.
 
+**13d.** A quote is found however the transcriber split its words.
+*Asserted by* `test_a_quote_the_transcriber_split_into_two_words_is_found`.
+
 **14.** An episode too long to be transcribed in one request is cut all the same, and its
 chapter marks land where they would have.
 *Asserted by* `test_an_episode_too_big_for_one_transcription_request_is_cut_all_the_same`.

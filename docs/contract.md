@@ -194,7 +194,9 @@ ends it. A hole whose request fails or comes back empty stays a hole and is not 
   named cues: compared as bare letters and digits, case folded, everything else stripped,
   Unicode-aware so that umlauts are letters. A transcript word with no letter or digit in
   it is dropped from the sequence first, so a quote matches across standalone
-  punctuation. At most six tokens of the quote are used, from the front. Found, the first
+  punctuation. The quote's letters and the words' letters are compared run together,
+  starting and ending on a word boundary, so "80,000" in the quote matches the words
+  `80` `,000`. At most six tokens of the quote are used, from the front. Found, the first
   matched word's start is the break's start; found more than once, the last place it is
   found is used, which removes the least. Not found, the first token is dropped and it is tried
   again, down to three tokens — every retry moving the start later, never earlier. Fewer

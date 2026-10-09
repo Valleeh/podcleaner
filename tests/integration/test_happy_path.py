@@ -225,6 +225,34 @@ def test_a_quote_said_twice_in_its_break_is_cut_from_the_later_one(
             decode_seconds(episode.mp3) - lost, abs=1.0)
 
 
+def test_a_quote_the_transcriber_split_into_two_words_is_found(
+        outside, tmp_path, episode, published):
+    """The words a cut is placed on are not always split where the quote is.
+
+    "This episode is sponsored by 80,000 Hours" came back as words ending ``80`` ``,000``
+    ``Hours.`` -- one word in the segment and in the model's quote, two in the timings --
+    and the break was refused in every run. The letters are the same either way.
+    """
+    brk = episode.breaks[0]
+    reply = json.loads(episode.transcript)
+    at = next(i for i, w in enumerate(reply["words"]) if w["start"] == round(brk.start, 3))
+    word = reply["words"][at]
+    text, middle = word["word"].strip(), (word["start"] + word["end"]) / 2
+    reply["words"][at:at + 1] = [
+        {"word": f" {text[:len(text) // 2]}", "start": word["start"], "end": middle},
+        {"word": f",{text[len(text) // 2:]}", "start": middle, "end": word["end"]}]
+    outside.serves("/audio/transcriptions", "application/json", reply)
+    outside.serves("/chat/completions", "application/json", model_reply([brk.as_segment()]))
+
+    with podclean_server(outside, tmp_path,
+                         PODCLEANER_TRANSCRIBE_MAX_BYTES=str(1 << 30)) as podclean:
+        requests.get(f"{podclean}/rss", params=published)
+        played = requests.get(f"{podclean}/podcast", params=published).content
+        (tmp_path / "played.mp3").write_bytes(played)
+        assert decode_seconds(tmp_path / "played.mp3") == pytest.approx(
+            decode_seconds(episode.mp3) - removed([brk]), abs=1.0)
+
+
 def test_the_transcriber_is_told_the_language_the_feed_declares(
         outside, tmp_path, episode, published):
     """Left to guess, it guessed from the first thing it heard.

@@ -217,17 +217,22 @@ func spokenWords(words []transcript.Word) ([]transcript.Word, []string) {
 	return spoken, said
 }
 
+// matches is every word the quote starts on: its letters, run together, are the letters
+// of the words from there, run together, ending on a word boundary.
+//
+// Run together because the transcriber does not split words where the quote does: one
+// episode's "80,000 Hours" was a single word in the segment the model read and two,
+// "80" and ",000", in the timings the cut is placed on, and that break was refused in
+// every run.
 func matches(said, tokens []string) []int {
+	quote := strings.Join(tokens, "")
 	var at []int
-	for i := 0; i+len(tokens) <= len(said); i++ {
-		hit := true
-		for j, token := range tokens {
-			if said[i+j] != token {
-				hit = false
-				break
-			}
+	for i := range said {
+		run := ""
+		for k := i; k < len(said) && len(run) < len(quote); k++ {
+			run += said[k]
 		}
-		if hit {
+		if run == quote {
 			at = append(at, i)
 		}
 	}
