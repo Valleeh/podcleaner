@@ -25,12 +25,18 @@ type Task struct {
 	Completer Completer
 }
 
+// readings is how many times the model reads the episode. Three readings of one 3.7 h
+// transcript missed one, one and two breaks -- different ones each time -- and every pair
+// of them together missed at most one, with no second of programme in any; a reading
+// costs $0.004.
+const readings = 2
+
 // Run reads the episode: what is advertising in it, and where its chapters are. publisher
 // is the publisher's own chapter marks, handed to the model as a hint.
 //
-// An answer that cannot be read is asked for once more. A provider once cut a reply off
-// mid-JSON, and a run that fails serves every advertisement in the episode -- a file the
-// podcatcher then keeps for good.
+// Every reading's segments are returned, each to be placed by its own quotes; the
+// chapters are the first reading's. A reading whose answer cannot be read is dropped, and
+// the episode fails only when none can be.
 func (t Task) Run(publisher []timeline.Chapter, rendered string) (Reply, error) {
 	screens, verifier := models(t.Spec)
 
@@ -38,11 +44,39 @@ func (t Task) Run(publisher []timeline.Chapter, rendered string) (Reply, error) 
 	if found := t.screen(screens, hint, rendered); found != "" {
 		hint = join(hint, found)
 	}
+	var merged Reply
+	var err error
+	read := false
+	for i := 0; i < readings; i++ {
+		reply, e := t.read(verifier, join(hint, rendered))
+		if e != nil {
+			if !errors.Is(e, errUnreadable) {
+				return Reply{}, e
+			}
+			err = e
+			continue
+		}
+		if !read {
+			merged.Chapters = reply.Chapters
+		}
+		merged.Segments = append(merged.Segments, reply.Segments...)
+		read = true
+	}
+	if !read {
+		return Reply{}, err
+	}
+	return merged, nil
+}
+
+// read is one reading. An answer that cannot be read is asked for once more: a provider
+// once cut a reply off mid-JSON, and a run that fails serves every advertisement in the
+// episode -- a file the podcatcher then keeps for good.
+func (t Task) read(model, user string) (Reply, error) {
 	var reply Reply
 	var err error
 	for asked := 0; asked < 2; asked++ {
 		var content string
-		if content, err = t.Completer.Complete(verifier, prompt, join(hint, rendered)); err != nil {
+		if content, err = t.Completer.Complete(model, prompt, user); err != nil {
 			return Reply{}, err
 		}
 		if reply, err = parseReply(content); !errors.Is(err, errUnreadable) {

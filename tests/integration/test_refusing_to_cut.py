@@ -48,13 +48,14 @@ def test_a_reply_the_model_mangles_leaves_the_episode_whole(outside, tmp_path, e
             for route in ("chapters", "transcript"):
                 assert requests.get(f"{server}/{route}", params=published).status_code == 404
             assert outside.counts()["/episode.mp3"] == attempt
-            assert outside.counts()["/chat/completions"] == 2 * attempt
+            assert outside.counts()["/chat/completions"] == 4 * attempt
 
 
 def test_a_reply_mangled_once_is_asked_for_again(outside, tmp_path, episode, published):
     # A provider once cut a reply off mid-JSON. Failing then serves every advertisement and
     # the podcatcher keeps that file for good, so the model is asked once more.
     answers = [{"choices": [{"message": {"content": '{"segments": [{"start_cue": 68, "end_'}}]},
+               model_reply([b.as_segment() for b in episode.breaks]),
                model_reply([b.as_segment() for b in episode.breaks])]
     outside.serves("/chat/completions", "application/json",
                    lambda _body: json.dumps(answers.pop(0)).encode("utf-8"))
@@ -62,7 +63,7 @@ def test_a_reply_mangled_once_is_asked_for_again(outside, tmp_path, episode, pub
         requests.get(f"{server}/rss", params=published)
         played = requests.get(f"{server}/podcast", params=published).content
     assert len(played) < len(episode.mp3.read_bytes())
-    assert outside.counts()["/chat/completions"] == 2
+    assert outside.counts()["/chat/completions"] == 3
 
 
 def test_a_break_whose_last_words_are_not_in_it_is_left_in(outside, tmp_path, episode, published):

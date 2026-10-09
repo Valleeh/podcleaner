@@ -149,8 +149,10 @@ characters.
 *Asserted by* `test_a_listener_subscribes_and_plays_one_episode`.
 
 **22.** Nothing outside is asked a second time, and nothing is paid for twice: one
-episode costs one pass over it.
-*Asserted by* `test_a_listener_subscribes_and_plays_one_episode`.
+episode costs one pass over it -- one transcription, and the model reading it twice, both
+readings cut.
+*Asserted by* `test_a_listener_subscribes_and_plays_one_episode` and
+`test_the_model_reads_the_episode_twice_and_every_break_either_finds_is_cut`.
 
 **23.** Simultaneous first plays of one episode pay for one pass and get the same answer.
 *Asserted by* `test_simultaneous_first_plays_only_pay_once`.

@@ -101,7 +101,7 @@ publisher's marks; their segments are then listed to the verifier as
 
     A first pass reported these; verify each and add any it missed:
 
-and only the verifier's answer is used. A screen that fails or answers rubbish is dropped
+and only the verifier's answer is used. The verifier reads the episode twice (`classify.readings`) and the segments of both readings are placed; the chapters are the first reading's, and an unreadable reading is asked once more and then dropped. A screen that fails or answers rubbish is dropped
 silently — it can only ever have added candidates.
 
 ## The prompt

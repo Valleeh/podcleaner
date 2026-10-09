@@ -59,7 +59,7 @@ def test_a_listener_subscribes_and_plays_one_episode(outside, tmp_path, episode,
         assert requests.get(f"{podclean}/podcast", params=wanted).content == played
         assert outside.counts() == hits_after_first_play
         assert hits_after_first_play["/audio/transcriptions"] == 1
-        assert hits_after_first_play["/chat/completions"] == 1
+        assert hits_after_first_play["/chat/completions"] == 2  # the episode is read twice
 
         # A podcatcher asks whether the episode is there, and how big it is, before it
         # queues the download -- so this has to answer the way the download itself would.
@@ -240,6 +240,24 @@ def test_a_master_that_is_not_the_episode_is_not_used(outside, tmp_path, episode
     assert played_seconds(outside, tmp_path, published) == pytest.approx(
         decode_seconds(episode.mp3) - removed(episode.breaks), abs=1.0)
     assert outside.counts()["/episode.mp3"] == 2
+
+
+def test_the_model_reads_the_episode_twice_and_every_break_either_finds_is_cut(
+        outside, tmp_path, episode, published):
+    """One reading misses what another finds.
+
+    Three readings of one 3.7 h transcript missed one, one and two breaks -- different
+    ones -- and every pair of them together missed at most one. The model reads the
+    episode twice and both readings are cut, each break placed by its own quotes.
+    """
+    first, rest = episode.breaks[:2], episode.breaks[2:]
+    readings = [model_reply([b.as_segment() for b in first]),
+                model_reply([b.as_segment() for b in rest])]
+    outside.serves("/chat/completions", "application/json",
+                   lambda _body: json.dumps(readings.pop(0)).encode("utf-8"))
+    assert played_seconds(outside, tmp_path, published) == pytest.approx(
+        decode_seconds(episode.mp3) - removed(episode.breaks), abs=1.0)
+    assert outside.counts()["/chat/completions"] == 2
 
 
 def test_a_break_named_one_cue_too_far_ends_with_its_last_words(

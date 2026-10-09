@@ -37,7 +37,7 @@ def test_simultaneous_first_plays_only_pay_once(outside, tmp_path, episode, publ
     assert answers[0].content == answers[1].content
     assert outside.counts()["/episode.mp3"] == 1
     assert outside.counts()["/audio/transcriptions"] == 1
-    assert outside.counts()["/chat/completions"] == 1
+    assert outside.counts()["/chat/completions"] == 2  # one play reads the episode twice
 
 
 @pytest.mark.parametrize("refuse", [False, True], ids=["clean", "refused"])
