@@ -38,8 +38,12 @@ func TranscribeBaseURL() string {
 // APIKey is the bearer token for both endpoints above. They are one account.
 func APIKey() string { return os.Getenv("PODCLEANER_LLM_API_KEY") }
 
+// LLMSpec is which model reads the transcript. One pass of qwen3.7-flash: measured on a
+// 3.8 h episode against a hand-made reference, it found what the qwen>deepseek cascade
+// found for a third of the price (about $0.012 against $0.02-0.04), and the cascade's
+// verifier was the reply a provider once cut off mid-JSON.
 func LLMSpec() string {
-	return env("PODCLEANER_LLM_SPEC", "cascade:qwen/qwen3.7-flash>deepseek/deepseek-v4-flash")
+	return env("PODCLEANER_LLM_SPEC", "qwen/qwen3.7-flash")
 }
 
 // TranscribeMaxBytes is the largest piece of audio put into one transcription request.

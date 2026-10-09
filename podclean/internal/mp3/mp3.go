@@ -129,12 +129,17 @@ func (f *File) Cut(tl timeline.Timeline) []byte {
 	return out
 }
 
+// span is frames from to to, and nothing that lies between them.
+//
+// Where a publisher splices a spot in, a few hundred bytes of broken frame are left
+// between two whole ones. Sent along, they stopped the transcriber dead at the splice: it
+// answered 1512 s of a 2097 s piece, and the ten minutes after it had no words at all.
 func (f *File) span(from, to int) []byte {
-	if from >= to {
-		return nil
+	var out []byte
+	for _, fr := range f.frames[from:to] {
+		out = append(out, f.data[fr.Offset:fr.Offset+fr.Length]...)
 	}
-	first, last := f.frames[from], f.frames[to-1]
-	return f.data[first.Offset : last.Offset+last.Length]
+	return out
 }
 
 // walk finds the frames, skipping whatever is not one.

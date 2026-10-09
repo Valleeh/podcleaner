@@ -15,6 +15,7 @@ type Segment struct {
 	Confidence float64 `json:"confidence"`
 	Reason     string  `json:"reason"`
 	FirstWords string  `json:"first_words"`
+	LastWords  string  `json:"last_words"`
 }
 
 // A Mark is one chapter the model proposed, by the cue it starts on.

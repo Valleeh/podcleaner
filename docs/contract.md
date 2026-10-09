@@ -26,7 +26,7 @@ Everything is an environment variable, read at use, no configuration file. `inte
 | `PODCLEANER_LLM_BASE_URL` | `https://openrouter.ai/api/v1` | OpenAI-shaped; `/chat/completions` is appended |
 | `PODCLEANER_TRANSCRIBE_BASE_URL` | `https://openrouter.ai/api/v1` | OpenAI-shaped; `/audio/transcriptions` is appended |
 | `PODCLEANER_LLM_API_KEY` | empty | bearer token for **both** of the above |
-| `PODCLEANER_LLM_SPEC` | `cascade:qwen/qwen3.7-flash>deepseek/deepseek-v4-flash` | which model or models classify |
+| `PODCLEANER_LLM_SPEC` | `qwen/qwen3.7-flash` | which model or models classify |
 | `PODCLEANER_TRANSCRIBE_MAX_BYTES` | `25165824` (24 MiB) | largest body sent to the transcriber |
 | `PODCLEANER_PARENT_PID` | unset | if set, halt when `/proc/<pid>` disappears — how `./run serve` dies with its `docker run` |
 
@@ -83,8 +83,8 @@ starting point. They may be wrong and they do not say where the advertising is:`
 whole rendered transcript — nothing chunks it, and the model's context window is the only
 limit past the episode-length cap. Read back `choices[0].message.content`, strip a ``` or
 ```json fence if the model wrapped one round it, parse as JSON, and require a `segments`
-list. Anything else is an unreadable reply: not asked again now, and not a decision about
-the audio either — `verdict.json` is written with `state: failed` and the error, nothing
+list. Anything else is an unreadable reply: the same question is asked once more, and a
+second unreadable reply is not a decision about the audio either — `verdict.json` is written with `state: failed` and the error, nothing
 else is, and the next play asks again.
 
 ## The cascade
@@ -142,7 +142,8 @@ tried and made it worse are recorded next to the prompt so that nobody adds them
 The answer, one JSON object:
 
     {"segments": [{"start_cue": int, "end_cue": int, "category": string,
-                   "confidence": number 0-1, "reason": string, "first_words": string}],
+                   "confidence": number 0-1, "reason": string, "first_words": string,
+                   "last_words": string}],
      "chapters": [{"cue": int, "title": string}]}
 
 ## Sending an episode up in pieces
@@ -155,17 +156,20 @@ pieces**. The renumbering is load-bearing: a break is placed by looking its cues
 number. No overlap is added between pieces: a garbled word at a boundary can only make a
 quote unfindable, which leaves an ad in. 24 MiB against the endpoint's 25: the multipart
 wrapper goes up too, and a request refused for being a few hundred bytes over costs the
-whole episode.
+whole episode. A piece is its frames concatenated and nothing else: the bytes a splice
+leaves between two frames stay behind, because sent along they stop the transcriber at
+the splice.
 
-Then every **hole** is sent up again: a stretch of at least the constant below,
-including before the first cue and after the last, that no cue and no word with a
-duration covers. It goes as the frames starting inside it, split the same way. Its cues
-and words are shifted by its own start and the whole transcript is put in time order
-before it is numbered. Zero-length words that an earlier reply left inside a hole a
-later reply filled, both ends included, are dropped: they are the lost words parked at
-its far end, and would otherwise be there twice. The holes that remain are asked about
-again, round after round, up to the limit below; a round in which no request came back
-ends it. A hole whose request fails or comes back empty stays a hole and is not an error.
+Then every **hole** is sent up once more: a stretch of at least the constant below,
+including before the first word and after the last, with no word of any duration in it —
+what a segment claims to span does not count. It goes as the frames starting inside it,
+split the same way. Its cues and words are shifted by its own start and the whole
+transcript is put in time order before it is numbered. What the earlier replies said
+inside a hole the later reply filled gives way to it: their zero-length words there, both
+ends included, are dropped (they are the lost words parked at its far end, and would
+otherwise be there twice), and a cue of theirs that starts inside the hole starts at the
+hole's end instead. A hole whose request fails or comes back empty stays a hole and is
+not an error.
 
 ## Cues, and how a break is placed on them
 
@@ -202,9 +206,13 @@ ends it. A hole whose request fails or comes back empty stays a hole and is not 
   a place, and is passed over. Not found, the first token is dropped and it is tried
   again, down to three tokens — every retry moving the start later, never earlier. Fewer
   than three tokens is refused.
-* **The end is where the last named cue ends.** No quote is asked for it: the cue that
-  opens a break usually opens with the host still talking, but the cue that closes one
-  closes with it.
+* A quote found at several places starts at the last of them, except that the whole quote
+  found at the opening of the first named cue starts there.
+* **The end is the end of the cue that holds the break's quoted last words**, and never
+  after the last named cue: when the last words (at least 6 letters) are in the last named
+  cue, the end is that cue's end; otherwise the last place they are found among the named
+  cues (at least 12 letters, worn down from the end, every retry moving the end earlier)
+  picks the cue. Last words found nowhere refuse the segment.
 * A break whose end is not after its start — a first word stamped past the last cue's
   end — is refused; so is one shorter than two margins.
 * A cut runs from the start plus one margin to the end less one margin. Cuts are then
@@ -219,7 +227,6 @@ ends it. A hole whose request fails or comes back empty stays a hole and is not 
 | 0.5 | `plan.minConfidence` | below this the model's segment is ignored |
 | 600 s | `plan.longestBreak` | a single cut longer than this refuses the whole plan |
 | 10 s | `episode.shortestHole` | a stretch with no words at least this long is transcribed again |
-| 3 | `episode.holeRounds` | how many rounds of holes are asked about |
 | 0.2 | `plan.mostOfAnEpisode` | cuts totalling more than this share of the episode refuse the whole plan |
 | 3 s | `mp3.minimumSeconds` | fewer seconds of parsable frames and the publisher's reply is not audio |
 | `sponsor_read`, `host_endorsement`, `cross_promo` | `plan.cuttable` | the only categories ever cut |

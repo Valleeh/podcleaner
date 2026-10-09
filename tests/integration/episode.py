@@ -145,7 +145,8 @@ class Break:
     ``start`` is the first quoted word's own timing, which is what the cut's start is
     placed on.  ``end`` is where the break's last cue ends: the cut runs to the end of the
     cue the model names, not to the break's last word.  ``first_cue`` begins earlier than
-    the break and holds programme too.
+    the break and holds programme too.  ``last_words`` are the break's own last words,
+    which confirm the cue the cut ends with.
     """
     category: str
     start: float
@@ -153,6 +154,7 @@ class Break:
     first_cue: int
     last_cue: int
     first_words: str
+    last_words: str
 
     @property
     def cut(self) -> Tuple[float, float]:
@@ -164,7 +166,7 @@ class Break:
         return {"start_cue": self.first_cue, "end_cue": self.last_cue,
                 "category": self.category, "confidence": confidence,
                 "reason": reason or f"{self.category} at {self.start:.0f}s",
-                "first_words": self.first_words}
+                "first_words": self.first_words, "last_words": self.last_words}
 
 
 def removed(breaks: Sequence[Break], before: float = float("inf")) -> float:
@@ -245,36 +247,38 @@ class Episode:
 
         return answer
 
-    def transcriber_skipping(self, skipped: Break, *, rounds: int = 1):
+    def transcriber_skipping(self, skipped: Break, *, early: bool = False):
         """A transcriber that says nothing about one break the first time it hears it.
 
         What the real one does: a stretch of the episode comes back with no segments and
-        no words, as if nobody spoke, and the next segment starts where the speech after
-        it does. Sent that stretch again on its own, it answers about it -- timed, as
-        always, from the start of what it was sent.
+        no words, as if nobody spoke. Sent that stretch again on its own, it answers about
+        it -- timed, as always, from the start of what it was sent.
 
-        With ``rounds=2`` the second request answers only the first half of the break and
-        falls silent again, as the real one did after a foreign-language spot: only a
-        third request, starting where the second one's speech ended, gets the rest.
+        With ``early`` the segment after the stretch claims to begin two seconds into it,
+        while its words still begin where the speech does -- as the real one did after a
+        German pre-roll, stamping "You know, Drew" seven seconds before Drew said it.
 
-        The first request must be the whole episode, and every later one is taken to be
-        what is left of the hole, which starts where the last cue heard so far ends.
+        The first request must be the whole episode, and the second is taken to be the
+        hole, which starts where the cue before the break ends.
         """
         per_second = BITRATE_KBPS * 1000 / 8
         inside = [c for c in self.cues if skipped.first_cue <= c.number <= skipped.last_cue]
         before = next(c for c in self.cues if c.number == skipped.first_cue - 1)
-        half = len(inside) // 2 if rounds == 2 else len(inside)
-        parts = [(before.end, inside[:half]), (inside[half - 1].end, inside[half:])]
+        after = next(c for c in self.cues if c.number == skipped.last_cue + 1)
         state = {"asked": 0}
 
         def answer(posted: bytes) -> bytes:
             audio = _posted_audio(posted)
             state["asked"] += 1
-            if state["asked"] == 1:
-                heard = [c for c in self.cues if c not in inside]
-                return _reply(_rebased(heard, 0.0), len(audio) / per_second)
-            hole, cues = parts[state["asked"] - 2]
-            return _reply(_rebased(cues, hole), len(audio) / per_second)
+            if state["asked"] > 1:
+                return _reply(_rebased(inside, before.end), len(audio) / per_second)
+            heard = json.loads(_reply(_rebased([c for c in self.cues if c not in inside], 0.0),
+                                      len(audio) / per_second))
+            if early:
+                for segment in heard["segments"]:
+                    if segment["start"] == round(after.start, 3):
+                        segment["start"] = round(before.end + 2, 3)
+            return json.dumps(heard).encode("utf-8")
 
         return answer
 
@@ -386,6 +390,7 @@ def build(directory: Path) -> Episode:
             category=run.category, start=words[0].start, end=closes.end,
             first_cue=opens.number, last_cue=closes.number,
             first_words=" ".join(w.text for w in words[:3]),
+            last_words=" ".join(w.text for w in words[-4:]),
         ))
 
     # A mark the programme comes back on: the first cue that begins after a break is over,

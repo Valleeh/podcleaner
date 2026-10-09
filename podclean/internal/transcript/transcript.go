@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -96,11 +97,15 @@ func Parse(body []byte, start float64) (Piece, error) {
 // every break after the first one in the wrong episode entirely.
 //
 // A reply about a hole lands inside another reply's stretch, so everything is put in
-// time order before it is numbered. Around a hole the reply before often parked the words
-// it lost, all with no duration, at the far end; once the hole has a reply of its own
-// those would be the same words twice, and a quote would be placed on the parked copy,
-// so they are dropped. Pieces come in the order they were asked for, so "before" is earlier in the
-// list.
+// time order before it is numbered. Pieces come in the order they were asked for, so
+// "before" is earlier in the list, and what a reply before said about a hole gives way to
+// the hole's own reply in two ways:
+//
+//   - the words it parked there, all with no duration, at the far end, are dropped: they
+//     would be the same words twice, and a quote would be placed on the parked copy;
+//   - a cue it claimed begins inside the hole begins at the hole's end instead. After a
+//     German pre-roll the next segment said it began seven seconds before its first word,
+//     and the spot's own words, when they came back, would have hung off that programme cue.
 //
 // seconds is how long the audio is, and it is the only bound on the last cue below.
 func Join(pieces []Piece, seconds float64) *Transcript {
@@ -118,6 +123,11 @@ func Join(pieces []Piece, seconds float64) *Transcript {
 			c.Start += at
 			c.End += at
 			c.Words = nil
+			for _, h := range later {
+				if c.Start >= h.Start && c.Start < h.End {
+					c.Start = math.Min(h.End, c.End)
+				}
+			}
 			t.Cues = append(t.Cues, c)
 		}
 		for _, w := range p.words {
@@ -150,13 +160,13 @@ func inside(at float64, spans []timeline.Span) bool {
 	return false
 }
 
-// Holes are the stretches of at least least seconds that no cue and no timed word speaks
-// for, from the start of the audio to seconds. A word with no duration is not a timing
-// (see closeLastCue) and does not fill one.
+// Holes are the stretches of at least least seconds with no timed word in them, from the
+// start of the audio to seconds. What a segment claims to span does not count: only words
+// say that something was heard. A word with no duration is not a timing (see
+// closeLastCue) and does not fill one.
 func (t *Transcript) Holes(least, seconds float64) []timeline.Span {
 	var said []timeline.Span
 	for _, c := range t.Cues {
-		said = append(said, timeline.Span{Start: c.Start, End: c.End})
 		for _, w := range c.Words {
 			if w.End > w.Start {
 				said = append(said, timeline.Span{Start: w.Start, End: w.End})

@@ -78,15 +78,18 @@ transcriber's description of the last cue stops before it.
 *Asserted by* `test_a_break_at_the_end_is_cut_when_the_transcriber_stops_before_its_words`.
 
 **13a.** A stretch of speech the transcriber answered with nothing is asked about again,
-until nothing is missing, and a break inside it is cut as if it had never been skipped.
+and a break inside it is cut as if it had never been skipped -- also when the next
+segment claims to begin inside that stretch.
 *Asserted by* `test_a_stretch_the_transcriber_skipped_is_asked_for_again`.
 
 **13b.** The transcriber is told the language the feed declares.
 *Asserted by* `test_the_transcriber_is_told_the_language_the_feed_declares`.
 
 **13c.** A break whose first words are said more than once inside it is cut from the
-last of them.
-*Asserted by* `test_a_quote_said_twice_in_its_break_is_cut_from_the_later_one`.
+last of them -- unless one of them opens the cue the break is named from, which is then
+where it starts.
+*Asserted by* `test_a_quote_said_twice_in_its_break_is_cut_from_the_later_one` and
+`test_a_spot_played_twice_is_cut_from_its_first_playing`.
 
 **13e.** A break is never cut from a copy of its words the transcriber parked with no
 duration.
@@ -94,6 +97,15 @@ duration.
 
 **13d.** A quote is found however the transcriber split its words.
 *Asserted by* `test_a_quote_the_transcriber_split_into_two_words_is_found`.
+
+**13f.** A break ends with the cue that holds its own last words, never after the last cue
+the model named, however far the model counted; without its last words it is left in.
+*Asserted by* `test_a_break_named_one_cue_too_far_ends_with_its_last_words` and
+`test_a_break_whose_last_words_are_not_in_it_is_left_in`.
+
+**13g.** Only audio frames are sent to the transcriber, never the bytes a splice left
+between them.
+*Asserted by* `test_only_audio_frames_are_sent_to_the_transcriber`.
 
 **14.** An episode too long to be transcribed in one request is cut all the same, and its
 chapter marks land where they would have.
@@ -178,9 +190,11 @@ break implausibly long, or breaks adding up to an implausible share of the episo
 break is both longer than any believable break and most of the episode — so it proves
 that one of the two rules exists, and neither on its own.
 
-**32.** A reply this server cannot read is not a verdict about the audio: the episode is
-served whole and no documents are published for it.
-*Asserted by* `test_a_reply_the_model_mangles_leaves_the_episode_whole`.
+**32.** A reply this server cannot read is asked for once more; read twice and still
+unreadable, it is not a verdict about the audio: the episode is served whole and no
+documents are published for it.
+*Asserted by* `test_a_reply_mangled_once_is_asked_for_again` and
+`test_a_reply_the_model_mangles_leaves_the_episode_whole`.
 
 **33.** An episode is examined and cut however long it runs.
 *Asserted by* `test_an_episode_hours_long_is_cut_all_the_same`.

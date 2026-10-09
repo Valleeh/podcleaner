@@ -7,6 +7,7 @@
 package classify
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -26,6 +27,10 @@ type Task struct {
 
 // Run reads the episode: what is advertising in it, and where its chapters are. publisher
 // is the publisher's own chapter marks, handed to the model as a hint.
+//
+// An answer that cannot be read is asked for once more. A provider once cut a reply off
+// mid-JSON, and a run that fails serves every advertisement in the episode -- a file the
+// podcatcher then keeps for good.
 func (t Task) Run(publisher []timeline.Chapter, rendered string) (Reply, error) {
 	screens, verifier := models(t.Spec)
 
@@ -33,11 +38,18 @@ func (t Task) Run(publisher []timeline.Chapter, rendered string) (Reply, error) 
 	if found := t.screen(screens, hint, rendered); found != "" {
 		hint = join(hint, found)
 	}
-	content, err := t.Completer.Complete(verifier, prompt, join(hint, rendered))
-	if err != nil {
-		return Reply{}, err
+	var reply Reply
+	var err error
+	for asked := 0; asked < 2; asked++ {
+		var content string
+		if content, err = t.Completer.Complete(verifier, prompt, join(hint, rendered)); err != nil {
+			return Reply{}, err
+		}
+		if reply, err = parseReply(content); !errors.Is(err, errUnreadable) {
+			return reply, err
+		}
 	}
-	return parseReply(content)
+	return reply, err
 }
 
 // screen runs the first pass and lists what it found for the verifier.

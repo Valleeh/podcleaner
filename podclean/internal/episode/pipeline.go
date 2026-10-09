@@ -62,20 +62,13 @@ func checkAudio(url string, raw []byte) (*mp3.File, error) {
 
 // shortestHole is the shortest stretch with no words in it that is sent to the
 // transcriber again. The transcriber now and then answers a stretch of speech with
-// nothing: the jingle and first words of nearly every break, and ten minutes after a
-// foreign-language spot, in one episode. Sent again on its own, each came back. A pause
-// between sentences is a second or two; a music bed that really is empty costs one short
-// request a round.
+// nothing: the jingle and first words of nearly every break in one episode, 12 to 27 s
+// each. Sent again on its own, each came back. A pause between sentences is a second or
+// two; a music bed that really is empty costs one short request.
 const shortestHole = 10.0
 
-// holeRounds is how many times what is still missing is asked about. Sent again, the ten
-// minutes after that spot came back as the spot and nothing else -- the same silence,
-// now starting later -- and only a second round, starting after the spot, got the rest.
-// A round that fills nothing ends the asking early.
-const holeRounds = 3
-
 // transcribe sends the episode up in pieces and puts the answers back on one timeline,
-// then sends every hole in that timeline up again, round after round.
+// then sends every hole in that timeline up once more.
 //
 // A hole that fails again stays a hole, as it was before it was asked about: the first
 // pass is already a transcript, and a word that is missing only leaves advertising in.
@@ -88,18 +81,11 @@ func (o *Orchestrator) transcribe(file *mp3.File, language string) (*transcript.
 		}
 		parsed = append(parsed, answer)
 	}
-	for round := 0; round < holeRounds; round++ {
-		filled := false
-		for _, hole := range transcript.Join(parsed, file.Seconds()).Holes(shortestHole, file.Seconds()) {
-			for _, piece := range file.Within(hole, o.MaxBytes) {
-				if answer, err := o.hear(piece, language); err == nil {
-					parsed = append(parsed, answer.Filling(hole))
-					filled = true
-				}
+	for _, hole := range transcript.Join(parsed, file.Seconds()).Holes(shortestHole, file.Seconds()) {
+		for _, piece := range file.Within(hole, o.MaxBytes) {
+			if answer, err := o.hear(piece, language); err == nil {
+				parsed = append(parsed, answer.Filling(hole))
 			}
-		}
-		if !filled {
-			break
 		}
 	}
 	return transcript.Join(parsed, file.Seconds()), nil
