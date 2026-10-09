@@ -12,12 +12,6 @@ import (
 	"podclean/internal/transcript"
 )
 
-// longestEpisode is the longest episode this server will examine. Past it, the
-// publisher's audio is served untouched, unexamined and unbilled: transcribing something
-// that long costs real money, and a file that size is more likely a concatenated archive
-// or a live stream dump than an episode with advertising breaks in it.
-const longestEpisode = 8400
-
 // A result is everything one run of the pipeline found, as far as it got. Each stage
 // fills its field; a field still empty is a stage that was never reached.
 type result struct {
@@ -31,8 +25,7 @@ type result struct {
 	chapters []timeline.Chapter // on the served timeline
 	vtt      string
 
-	untouched bool  // too long to examine, served as it came
-	err       error // the stage that did not finish
+	err error // the stage that did not finish
 }
 
 // pipeline runs the stages for one episode, in order, and stops at the first one that
@@ -42,10 +35,6 @@ func (o *Orchestrator) pipeline(source store.Source) (r result) {
 		return r
 	}
 	if r.file, r.err = checkAudio(source.URL, r.raw); r.err != nil {
-		return r
-	}
-	if r.untouched = r.file.Seconds() > longestEpisode; r.untouched {
-		r.served = r.raw
 		return r
 	}
 	if r.text, r.err = o.transcribe(r.file); r.err != nil {

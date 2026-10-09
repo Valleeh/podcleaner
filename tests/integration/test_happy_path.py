@@ -26,7 +26,7 @@ import pytest
 import requests
 
 from tests.integration.episode import MARGIN_SECONDS, quote, removed
-from tests.integration.support import decode_seconds, model_reply, podclean_server
+from tests.integration.support import decode_seconds, ffmpeg, model_reply, podclean_server
 
 def test_a_listener_subscribes_and_plays_one_episode(outside, tmp_path, episode, published):
     # What the reply implies: every break but a margin at each end, and every chapter
@@ -142,6 +142,30 @@ def test_an_episode_too_big_for_one_transcription_request_is_cut_all_the_same(
     # It really did take more than one request: otherwise the limit above was never
     # reached and this test says nothing the play above does not already say.
     assert outside.counts()["/audio/transcriptions"] > 1
+
+
+def test_an_episode_hours_long_is_cut_all_the_same(outside, tmp_path, episode, published):
+    """Some podcasts run four or five hours, and the listener chose to subscribe to them.
+
+    The episode played three times over, back to back: nearly four hours, as long as the
+    one this was found on. Its breaks are all in the first third, where the transcript and
+    the model put them, so it loses exactly what the episode on its own loses.
+    """
+    (tmp_path / "episode.mp3").write_bytes(episode.mp3.read_bytes())
+    (tmp_path / "parts.txt").write_text("file '/in/episode.mp3'\n" * 3)
+    long = tmp_path / "long.mp3"
+    ffmpeg(["-f", "concat", "-safe", "0", "-i", "/in/parts.txt", "-c", "copy", "-y"],
+           reads=tmp_path / "parts.txt", writes=long)
+    outside.serves("/episode.mp3", "audio/mpeg", long.read_bytes())
+    outside.serves("/audio/transcriptions", "application/json", episode.transcriber())
+
+    with podclean_server(outside, tmp_path,
+                         PODCLEANER_TRANSCRIBE_MAX_BYTES=str(1 << 30)) as podclean:
+        requests.get(f"{podclean}/rss", params=published)
+        played = requests.get(f"{podclean}/podcast", params=published).content
+        (tmp_path / "played.mp3").write_bytes(played)
+        assert decode_seconds(tmp_path / "played.mp3") == pytest.approx(
+            decode_seconds(long) - removed(episode.breaks), abs=1.0)
 
 
 
