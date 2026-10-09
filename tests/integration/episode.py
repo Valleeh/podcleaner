@@ -143,10 +143,11 @@ class Break:
     """One advertising block, and what a classifier says to name it.
 
     ``start`` is the first quoted word's own timing, which is what the cut's start is
-    placed on.  ``end`` is where the break's last cue ends: the cut runs to the end of the
-    cue the model names, not to the break's last word.  ``first_cue`` begins earlier than
-    the break and holds programme too.  ``last_words`` are the break's own last words,
-    which confirm the cue the cut ends with.
+    placed on, and ``last_end`` the break's last word's, which is what its end is placed
+    on.  ``end`` is where the break's last cue ends, programme and all: a cut that ran to
+    the end of the cue would take the programme's first words with it.  ``first_cue``
+    begins earlier than the break and holds programme too.  ``last_words`` are the
+    break's own last words.
     """
     category: str
     start: float
@@ -155,11 +156,12 @@ class Break:
     last_cue: int
     first_words: str
     last_words: str
+    last_end: float
 
     @property
     def cut(self) -> Tuple[float, float]:
-        """What is removed: quoted word to cue's end, less :data:`MARGIN_SECONDS` an end."""
-        return self.start + MARGIN_SECONDS, self.end - MARGIN_SECONDS
+        """What is removed: first quoted word to last, less :data:`MARGIN_SECONDS` an end."""
+        return self.start + MARGIN_SECONDS, self.last_end - MARGIN_SECONDS
 
     def as_segment(self, *, confidence: float = 0.95, reason: str = "") -> dict:
         """This break as the classifier reports it."""
@@ -247,7 +249,7 @@ class Episode:
 
         return answer
 
-    def transcriber_skipping(self, skipped: Break, *, early: bool = False):
+    def transcriber_skipping(self, skipped: Break, *, early: bool = False, deaf: bool = False):
         """A transcriber that says nothing about one break the first time it hears it.
 
         What the real one does: a stretch of the episode comes back with no segments and
@@ -258,6 +260,10 @@ class Episode:
         while its words still begin where the speech does -- as the real one did after a
         German pre-roll, stamping "You know, Drew" seven seconds before Drew said it.
 
+        With ``deaf`` the hole comes back empty again when it is asked of the same model as
+        the whole episode was -- as whisper did with a sponsor read spoken over a jingle,
+        however it was sent -- and is answered only by another one.
+
         The first request must be the whole episode, and the second is taken to be the
         hole, which starts where the cue before the break ends.
         """
@@ -265,12 +271,17 @@ class Episode:
         inside = [c for c in self.cues if skipped.first_cue <= c.number <= skipped.last_cue]
         before = next(c for c in self.cues if c.number == skipped.first_cue - 1)
         after = next(c for c in self.cues if c.number == skipped.last_cue + 1)
-        state = {"asked": 0}
+        state = {"asked": 0, "model": None}
 
         def answer(posted: bytes) -> bytes:
             audio = _posted_audio(posted)
             state["asked"] += 1
-            if state["asked"] > 1:
+            model = _posted_field(posted, "model")
+            if state["asked"] == 1:
+                state["model"] = model
+            elif deaf and model == state["model"]:
+                return json.dumps({"text": "", "segments": [], "words": []}).encode("utf-8")
+            else:
                 return _reply(_rebased(inside, before.end), len(audio) / per_second)
             heard = json.loads(_reply(_rebased([c for c in self.cues if c not in inside], 0.0),
                                       len(audio) / per_second))
@@ -339,6 +350,16 @@ def _posted_audio(posted: bytes) -> bytes:
     raise AssertionError("no file part in the posted body")
 
 
+def _posted_field(posted: bytes, name: str) -> str:
+    """One plain field of a multipart POST, or "" when there is none."""
+    boundary = posted.split(b"\r\n", 1)[0]
+    for part in posted.split(boundary):
+        head, _, body = part.partition(b"\r\n\r\n")
+        if f'name="{name}"'.encode() in head and b"filename=" not in head:
+            return body.rsplit(b"\r\n", 1)[0].decode("utf-8", "replace")
+    return ""
+
+
 def _rebased(cues: Sequence[Cue], start: float) -> List[Cue]:
     """These cues with ``start`` taken off every time in them, and renumbered from 1.
 
@@ -390,7 +411,7 @@ def build(directory: Path) -> Episode:
             category=run.category, start=words[0].start, end=closes.end,
             first_cue=opens.number, last_cue=closes.number,
             first_words=" ".join(w.text for w in words[:3]),
-            last_words=" ".join(w.text for w in words[-4:]),
+            last_words=" ".join(w.text for w in words[-4:]), last_end=words[-1].end,
         ))
 
     # A mark the programme comes back on: the first cue that begins after a break is over,
@@ -418,8 +439,9 @@ def _refuse_alignment(run: Run, words: Sequence[Word], opens: Cue, closes: Cue) 
 
     Each end is checked on its own.  At the head, the room in front of the break is what a
     cut anchored to the cue would take.  At the tail, the room after the break's last word
-    is what tells a cut that ends where the cue ends -- the promise -- from one that stops
-    at the last word.  Summing them would let one end pass on the strength of the other.
+    is what tells a cut that stops at the last word -- the promise -- from one that runs
+    on to where the cue ends and takes the programme's first words with it.  Summing them
+    would let one end pass on the strength of the other.
     What a break cannot have is more programme in front of it than the episode holds, so
     the requirement at the head is the whole of what runs before the break, up to
     :data:`STRADDLE_SECONDS` -- 1.55 s for the pre-roll, as in the real episode, and the

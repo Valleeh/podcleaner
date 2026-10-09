@@ -13,6 +13,7 @@
 package plan
 
 import (
+	"math"
 	"errors"
 	"fmt"
 	"sort"
@@ -120,16 +121,13 @@ func implausible(cuts []timeline.Span, seconds float64) string {
 
 // place turns one reported segment into the interval that will actually be removed.
 //
-// The start is the word the model quoted, found among the words of the cues it named; the
-// end is where the cue holding the break's quoted last words ends. The two edges are
-// guarded differently because they fail differently. A transcriber's segment does not
-// begin where an advertisement does, so the cue that opens a break usually opens with the
-// host still talking, and a cut from the cue's start would take that sentence -- the
-// start has to be placed on the break's own first word. The cue that closes a break ends
-// with it, so the end takes a cue's own bound -- but which cue is not the model's count:
-// on a transcript with nothing wrong in it, a break named one cue too far took seven
-// seconds of programme and one named fifteen too far took forty-five. The last words pick
-// the cue, and the cut never ends after the last cue named.
+// The start is the word the model quoted first, found among the words of the cues it
+// named, and the end the word it quoted last. Neither is a cue's bound: a transcriber's
+// segment does not begin or end where an advertisement does, so the cue that opens a
+// break usually opens with the host still talking and the cue that closes one may run on
+// into the programme. A cut from a cue's start would take the host's last sentence, and
+// one to a cue's end the programme's first words -- the end of the cue the model named
+// took seven and forty-five seconds on a transcript with nothing wrong in it.
 func place(t *transcript.Transcript, s classify.Segment) (timeline.Span, error) {
 	// Both indices must exist and bound a complete range. A clamped or invented index is
 	// refused outright rather than narrowed: the cut runs to the end of the last cue
@@ -233,52 +231,71 @@ func opening(words []transcript.Word, quote string, opens transcript.Cue) (float
 }
 
 // Letters a quoted end must have: endLetters to name a place among all the cues a segment
-// names, confirmLetters to confirm that its last cue is the one the break ends in. The
-// model often quotes the end in two words -- "slash purpose.", "right here." -- which are
-// too few to tell one cue from another and plenty to say whether they are in this one.
+// names, confirmLetters when it is found in the last of them. The model often quotes the
+// end in two words -- "slash purpose.", "right here." -- which are too few to tell one
+// cue from another and plenty to find inside the one the model says the break ends in.
 const (
 	endLetters     = 12
 	confirmLetters = 6
 )
 
-// ending is where the break ends: the end of the last cue named when the quoted last
-// words are in it, otherwise the end of the named cue that holds the last place they are
-// found, and an error when they are found nowhere -- a cut whose end is only the model's
-// count is the cut that took forty-five seconds of programme.
+// ending is where the break ends: where its quoted last words end -- the last place they
+// are found in the last cue named, otherwise among all the cues named -- and an error
+// when they are found nowhere.
 //
-// Every retry drops the quote's last word, which moves the end earlier; and every cue
-// searched is one the model named, so the cut never ends after the last of them.
+// Never later than the last quoted word, nor than the end the cue holding it gives
+// itself. A cut whose end was only the model's count took seven and forty-five seconds
+// of programme, and one that ran on to the end of the cue holding the last words took
+// 1.7 s: the transcriber had stretched that cue over the music and into "So we have now
+// managed". A word stamped past its own cue's end is one the aligner parked there from a
+// stretch it dropped (see transcript.closeLastCue), and what lies past that end no cue
+// describes. Every retry drops the quote's last word, which moves the end earlier, and
+// every word searched is in a cue the model named.
 func ending(t *transcript.Transcript, s classify.Segment, last transcript.Cue) (float64, error) {
 	tokens := normalise(s.LastWords)
-	if quote := strings.Join(tokens, ""); len(quote) >= confirmLetters {
-		if _, said := spokenWords(last.Words); strings.Contains(strings.Join(said, ""), quote) {
-			return last.End, nil
-		}
-	}
 	if len(tokens) > maxTokens {
 		tokens = tokens[len(tokens)-maxTokens:]
 	}
-	var cues []transcript.Cue
-	var said []string
-	for i := s.StartCue; i <= s.EndCue; i++ {
-		c, _ := t.Cue(i)
-		_, words := spokenWords(c.Words)
-		for _, w := range words {
-			cues, said = append(cues, c), append(said, w)
+	if len(strings.Join(tokens, "")) >= confirmLetters {
+		if at, ok := lastEnd([]transcript.Cue{last}, tokens); ok {
+			return at, nil
 		}
 	}
-	for quote := strings.Join(tokens, ""); len(quote) >= endLetters; quote = strings.Join(tokens, "") {
-		if found := matches(said, tokens); len(found) > 0 {
-			// the cue of the quote's own last word, which may be the next one
-			k, run := found[len(found)-1], ""
-			for ; len(run) < len(quote); k++ {
-				run += said[k]
-			}
-			return cues[k-1].End, nil
+	var named []transcript.Cue
+	for i := s.StartCue; i <= s.EndCue; i++ {
+		c, _ := t.Cue(i)
+		named = append(named, c)
+	}
+	for len(strings.Join(tokens, "")) >= endLetters {
+		if at, ok := lastEnd(named, tokens); ok {
+			return at, nil
 		}
 		tokens = tokens[:len(tokens)-1]
 	}
 	return 0, errNotFound
+}
+
+// lastEnd is where the last place the tokens are found among the cues' words ends: the
+// end of the word their letters run out in, or of that word's cue if that is earlier.
+func lastEnd(cues []transcript.Cue, tokens []string) (float64, bool) {
+	var spoken []transcript.Word
+	var said []string
+	var bound []float64
+	for _, c := range cues {
+		words, letters := spokenWords(c.Words)
+		for i := range words {
+			spoken, said, bound = append(spoken, words[i]), append(said, letters[i]), append(bound, c.End)
+		}
+	}
+	found := matches(said, tokens)
+	if len(found) == 0 {
+		return 0, false
+	}
+	quote, run, k := strings.Join(tokens, ""), "", found[len(found)-1]
+	for ; len(run) < len(quote); k++ {
+		run += said[k]
+	}
+	return math.Min(spoken[k-1].End, bound[k-1]), true
 }
 
 // spokenWords is the words that carry any letters at all, and their comparable form.

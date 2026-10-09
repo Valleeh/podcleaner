@@ -65,7 +65,7 @@ auth, 900 s, `multipart/form-data`:
 | field | value |
 |---|---|
 | `file` | the audio, filename `episode.mp3`, content type `audio/mpeg` |
-| `model` | `openai/whisper-large-v3-turbo` |
+| `model` | `openai/whisper-large-v3-turbo` for the episode's pieces, `x-ai/grok-stt-1.0` for its holes |
 | `response_format` | `verbose_json` |
 | `timestamp_granularities[]` | `segment` **and** `word`, sent twice |
 | `language` | the first two letters of the feed channel's `<language>`, lowercased; absent when the feed names none |
@@ -77,8 +77,8 @@ words are what a cut's start is placed on.
 
 **Classification.** `POST $PODCLEANER_LLM_BASE_URL/chat/completions`, bearer auth, 900 s,
 JSON body: `model`, `messages`, `temperature: 0`, `response_format: {"type":
-"json_object"}`. Nothing else is sent — no `max_tokens`, no reasoning switch — so whether
-a model reasons is the provider's default for that model id; the reply's `usage` block is
+"json_object"}`, `reasoning: {"max_tokens": 4000}`. Nothing else is sent — no `max_tokens`
+on the answer; the reply's `usage` block is
 not read or logged, so what an episode's transcription and its model calls each cost is
 not on record. `messages` is the system prompt and one user message of up to three parts,
 separated by blank lines and each absent with its separator when empty: the publisher's
@@ -165,7 +165,7 @@ whole episode. A piece is its frames concatenated and nothing else: the bytes a 
 leaves between two frames stay behind, because sent along they stop the transcriber at
 the splice.
 
-Then every **hole** is sent up once more: a stretch of at least the constant below,
+Then every **hole** is sent up once more, to the hole model: a stretch of at least the constant below,
 including before the first word and after the last, with no word of any duration in it —
 what a segment claims to span does not count. It goes as the frames starting inside it,
 split the same way. Its cues and words are shifted by its own start and the whole
@@ -213,11 +213,11 @@ not an error.
   than three tokens is refused.
 * A quote found at several places starts at the last of them, except that the whole quote
   found at the opening of the first named cue starts there.
-* **The end is the end of the cue that holds the break's quoted last words**, and never
-  after the last named cue: when the last words (at least 6 letters) are in the last named
-  cue, the end is that cue's end; otherwise the last place they are found among the named
-  cues (at least 12 letters, worn down from the end, every retry moving the end earlier)
-  picks the cue. Last words found nowhere refuse the segment.
+* **The end is where the break's quoted last words end**: the last place they are found
+  in the last named cue (at least 6 letters), otherwise among all the named cues (at least
+  12 letters, worn down from the end, every retry moving the end earlier); and never later
+  than the end the cue holding that word gives itself. Last words found nowhere refuse the
+  segment.
 * A break whose end is not after its start — a first word stamped past the last cue's
   end — is refused; so is one shorter than two margins.
 * A cut runs from the start plus one margin to the end less one margin. Cuts are then

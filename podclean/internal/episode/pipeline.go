@@ -88,22 +88,33 @@ func checkAudio(url string, raw []byte) (*mp3.File, error) {
 	return file, nil
 }
 
+// The two models this server transcribes with. Whisper hears the episode: $0.012 an hour,
+// its timings right, and English and German both where the feed names English. But it
+// misses what is spoken over music -- the first half minute of nearly every sponsor read
+// in one episode, over its jingle -- and sent the same stretch again, alone or with
+// speech before it, it misses it again. Grok heard every one of those stretches, timed
+// to 0.1 s against a hand-made reference; at eight times the price it is asked only
+// about the holes, two minutes or so of a four-hour episode.
+const (
+	episodeModel = "openai/whisper-large-v3-turbo"
+	holeModel    = "x-ai/grok-stt-1.0"
+)
+
 // shortestHole is the shortest stretch with no words in it that is sent to the
-// transcriber again. The transcriber now and then answers a stretch of speech with
-// nothing: the jingle and first words of nearly every break in one episode, 12 to 27 s
-// each. Sent again on its own, each came back. A pause between sentences is a second or
+// transcriber again. Whisper answered the jingle and first words of nearly every break in
+// one episode with nothing, 12 to 27 s each. A pause between sentences is a second or
 // two; a music bed that really is empty costs one short request.
 const shortestHole = 10.0
 
 // transcribe sends the episode up in pieces and puts the answers back on one timeline,
-// then sends every hole in that timeline up once more.
+// then sends every hole in that timeline up once more, to the other model.
 //
 // A hole that fails again stays a hole, as it was before it was asked about: the first
 // pass is already a transcript, and a word that is missing only leaves advertising in.
 func (o *Orchestrator) transcribe(file *mp3.File, language string) (*transcript.Transcript, error) {
 	var parsed []transcript.Piece
 	for _, piece := range file.Pieces(o.MaxBytes) {
-		answer, err := o.hear(piece, language)
+		answer, err := o.hear(piece, episodeModel, language)
 		if err != nil {
 			return nil, err
 		}
@@ -111,7 +122,7 @@ func (o *Orchestrator) transcribe(file *mp3.File, language string) (*transcript.
 	}
 	for _, hole := range transcript.Join(parsed, file.Seconds()).Holes(shortestHole, file.Seconds()) {
 		for _, piece := range file.Within(hole, o.MaxBytes) {
-			if answer, err := o.hear(piece, language); err == nil {
+			if answer, err := o.hear(piece, holeModel, language); err == nil {
 				parsed = append(parsed, answer.Filling(hole))
 			}
 		}
@@ -119,8 +130,8 @@ func (o *Orchestrator) transcribe(file *mp3.File, language string) (*transcript.
 	return transcript.Join(parsed, file.Seconds()), nil
 }
 
-func (o *Orchestrator) hear(piece mp3.Piece, language string) (transcript.Piece, error) {
-	body, err := o.Outside.Transcribe(piece.Data, language)
+func (o *Orchestrator) hear(piece mp3.Piece, model, language string) (transcript.Piece, error) {
+	body, err := o.Outside.Transcribe(piece.Data, model, language)
 	if err != nil {
 		return transcript.Piece{}, err
 	}

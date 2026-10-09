@@ -78,8 +78,8 @@ transcriber's description of the last cue stops before it.
 *Asserted by* `test_a_break_at_the_end_is_cut_when_the_transcriber_stops_before_its_words`.
 
 **13a.** A stretch of speech the transcriber answered with nothing is asked about again,
-and a break inside it is cut as if it had never been skipped -- also when the next
-segment claims to begin inside that stretch.
+of another transcriber, and a break inside it is cut as if it had never been skipped --
+also when the next segment claims to begin inside that stretch.
 *Asserted by* `test_a_stretch_the_transcriber_skipped_is_asked_for_again`.
 
 **13b.** The transcriber is told the language the feed declares.
@@ -98,8 +98,8 @@ duration.
 **13d.** A quote is found however the transcriber split its words.
 *Asserted by* `test_a_quote_the_transcriber_split_into_two_words_is_found`.
 
-**13f.** A break ends with the cue that holds its own last words, never after the last cue
-the model named, however far the model counted; without its last words it is left in.
+**13f.** A break ends where its own last words end, never after the last cue the model
+named, however far the model counted; without its last words it is left in.
 *Asserted by* `test_a_break_named_one_cue_too_far_ends_with_its_last_words` and
 `test_a_break_whose_last_words_are_not_in_it_is_left_in`.
 

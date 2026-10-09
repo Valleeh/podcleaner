@@ -178,9 +178,10 @@ def played_seconds(outside, tmp_path, published) -> float:
     return decode_seconds(tmp_path / "played.mp3")
 
 
-@pytest.mark.parametrize("early", [False, True], ids=["clean-hole", "next-cue-stamped-early"])
+@pytest.mark.parametrize("early, deaf", [(False, False), (True, False), (False, True)],
+                         ids=["clean-hole", "next-cue-stamped-early", "deaf-to-it-twice"])
 def test_a_stretch_the_transcriber_skipped_is_asked_for_again(
-        outside, tmp_path, episode, published, early):
+        outside, tmp_path, episode, published, early, deaf):
     """A real transcriber now and then answers a stretch of speech with nothing at all.
 
     It happened at the jingle of nearly every break in one episode. Words nobody
@@ -193,9 +194,13 @@ def test_a_stretch_the_transcriber_skipped_is_asked_for_again(
     next segment said it began seven seconds before its first word did. Those seconds
     are the hole's, and the words that come back for them belong to the break, not to
     the programme cue that claimed them.
+
+    And it is asked of another transcriber. Whisper missed the first half minute of
+    nearly every sponsor read in one episode -- spoken over a jingle -- and sent the same
+    stretch again, alone or with speech before it, it missed it again.
     """
     outside.serves("/audio/transcriptions", "application/json",
-                   episode.transcriber_skipping(episode.breaks[1], early=early))
+                   episode.transcriber_skipping(episode.breaks[1], early=early, deaf=deaf))
     assert played_seconds(outside, tmp_path, published) == pytest.approx(
         decode_seconds(episode.mp3) - removed(episode.breaks), abs=1.0)
     assert outside.counts()["/audio/transcriptions"] == 2
@@ -275,7 +280,7 @@ def test_a_spot_played_twice_is_cut_from_its_first_playing(
         [{**brk.as_segment(), "start_cue": opens.number, "first_words": first_words}]))
     assert played_seconds(outside, tmp_path, published) == pytest.approx(
         decode_seconds(episode.mp3)
-        - ((brk.end - MARGIN_SECONDS) - (opens.start + MARGIN_SECONDS)), abs=1.0)
+        - ((brk.last_end - MARGIN_SECONDS) - (opens.start + MARGIN_SECONDS)), abs=1.0)
 
 
 def test_only_audio_frames_are_sent_to_the_transcriber(outside, tmp_path, episode, published):
@@ -322,7 +327,7 @@ def test_a_quote_said_twice_in_its_break_is_cut_from_the_later_one(
             word["word"] = f" {said[word['start']]}"
     outside.serves("/audio/transcriptions", "application/json", reply)
     outside.serves("/chat/completions", "application/json", model_reply([brk.as_segment()]))
-    lost = (brk.end - MARGIN_SECONDS) - (later.start + MARGIN_SECONDS)
+    lost = (brk.last_end - MARGIN_SECONDS) - (later.start + MARGIN_SECONDS)
 
     with podclean_server(outside, tmp_path,
                          PODCLEANER_TRANSCRIBE_MAX_BYTES=str(1 << 30)) as podclean:
