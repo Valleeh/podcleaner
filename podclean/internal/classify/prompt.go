@@ -26,6 +26,11 @@ package classify
 //
 // The German cue words, because every episode this is measured on is German.
 //
+// Nothing about a spot played twice. "A spot played twice is two segments" was tried on
+// 2026-10-10: the model began reporting every break twice, once whole from the hand-off
+// and once per advertiser, and one whole one began at the end of the previous
+// conversation -- 48.7 s of programme in 3 of 3 runs. Without the line: 0 s.
+//
 // Two rules that were tried and dropped, so that nobody adds them back: telling the model
 // that end_cue must contain the words it quotes pushed it to quote repeated boilerplate,
 // which is ambiguous and rejected (eight of nine down to seven). Telling it to pick words
@@ -71,8 +76,7 @@ categories:
                     self_promo; when you cannot tell, it is not.
   credits           The closing credits: who produced it, who edited it, the music.
 
-Stacked advertisements are separate segments, one per advertiser, and a spot played twice
-is two segments, one per playing. The hand-off into a
+Stacked advertisements are separate segments, one per advertiser. The hand-off into a
 break and the return out of it -- "und jetzt zurück zur Sendung", "and now back to the
 show" -- belong to the break, not to the programme.
 
