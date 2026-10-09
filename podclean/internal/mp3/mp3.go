@@ -85,11 +85,26 @@ type Piece struct {
 // garbled at a boundary can only make a quote unfindable, which leaves an advertisement
 // in, and that is the direction this project errs in.
 func (f *File) Pieces(maxBytes int) []Piece {
+	return f.pieces(0, len(f.frames), maxBytes)
+}
+
+// Within is the same split over only the frames that start inside s: one stretch of the
+// episode sent again on its own.
+func (f *File) Within(s timeline.Span, maxBytes int) []Piece {
+	from, to := 0, 0
+	for from < len(f.frames) && f.starts[from] < s.Start {
+		from++
+	}
+	for to = from; to < len(f.frames) && f.starts[to] < s.End; to++ {
+	}
+	return f.pieces(from, to, maxBytes)
+}
+
+func (f *File) pieces(from, end, maxBytes int) []Piece {
 	var pieces []Piece
-	from := 0
-	for from < len(f.frames) {
+	for from < end {
 		to, size := from, 0
-		for to < len(f.frames) && (to == from || size+f.frames[to].Length <= maxBytes) {
+		for to < end && (to == from || size+f.frames[to].Length <= maxBytes) {
 			size += f.frames[to].Length
 			to++
 		}

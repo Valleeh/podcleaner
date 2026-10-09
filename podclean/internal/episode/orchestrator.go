@@ -55,7 +55,7 @@ func (o *Orchestrator) Feed(url string) ([]byte, error) {
 	}
 	for _, e := range episodes {
 		if err := o.Store.PutSource(url, e.GUID, store.Source{
-			URL: e.Enclosure, Feed: url, ChaptersURL: e.ChaptersURL}); err != nil {
+			URL: e.Enclosure, Feed: url, ChaptersURL: e.ChaptersURL, Language: e.Language}); err != nil {
 			log.Printf("feed=%s guid=%s cannot record the episode: %v", url, e.GUID, err)
 		}
 	}

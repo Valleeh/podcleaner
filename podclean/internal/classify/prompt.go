@@ -48,7 +48,10 @@ categories:
 
   sponsor_read      A paid advertisement for somebody who is not this show: a product, a
                     service, a discount code. "brought to you by", "presented by",
-                    "Werbung", "Anzeige", "präsentiert von".
+                    "Werbung", "Anzeige", "präsentiert von". A spot for a shop, an event,
+                    an employer or a local business is sponsor_read even when it is in
+                    another language than the episode, has no announcer and names no
+                    sponsor: the publisher inserts such spots by region.
   host_endorsement  A paid sponsor recommended by the host in their own voice, with no
                     announcer around it.
   cross_promo       An advertisement or a trailer for a show these hosts have no hand in.
@@ -58,7 +61,8 @@ categories:
                     they publish. "Subscribe to X, which we put out" is self_promo, not
                     cross_promo. If it is theirs, it is self_promo even when it is worded
                     exactly like an advertisement. A live-date plug is self_promo, never
-                    sponsor_read.
+                    sponsor_read. Only what the hosts themselves say is theirs is
+                    self_promo; when you cannot tell, it is not.
   credits           The closing credits: who produced it, who edited it, the music.
 
 Stacked advertisements are separate segments, one per advertiser. The hand-off into a

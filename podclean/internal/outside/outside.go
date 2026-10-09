@@ -129,7 +129,11 @@ func (c *Client) PublisherChapters(url *string) []timeline.Chapter {
 //
 // Both timestamp granularities are asked for, and both are needed: the segments become
 // the numbered cues the model answers about, and the words are what a cut is placed on.
-func (c *Client) Transcribe(audio []byte) ([]byte, error) {
+//
+// language, when the feed named one, is sent too. Left to guess, the transcriber guesses
+// from the first thing it hears: an English episode opening on a German advertisement
+// came back with its first minutes translated into German.
+func (c *Client) Transcribe(audio []byte, language string) ([]byte, error) {
 	var body bytes.Buffer
 	form := multipart.NewWriter(&body)
 
@@ -143,12 +147,16 @@ func (c *Client) Transcribe(audio []byte) ([]byte, error) {
 	if _, err := part.Write(audio); err != nil {
 		return nil, fmt.Errorf("cannot build the transcription request: %v", err)
 	}
-	for _, field := range [][2]string{
+	fields := [][2]string{
 		{"model", transcriptionModel},
 		{"response_format", "verbose_json"},
 		{"timestamp_granularities[]", "segment"},
 		{"timestamp_granularities[]", "word"},
-	} {
+	}
+	if language != "" {
+		fields = append(fields, [2]string{"language", language})
+	}
+	for _, field := range fields {
 		if err := form.WriteField(field[0], field[1]); err != nil {
 			return nil, fmt.Errorf("cannot build the transcription request: %v", err)
 		}

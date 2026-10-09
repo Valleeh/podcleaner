@@ -168,6 +168,55 @@ def test_an_episode_hours_long_is_cut_all_the_same(outside, tmp_path, episode, p
             decode_seconds(long) - removed(episode.breaks), abs=1.0)
 
 
+def test_a_stretch_the_transcriber_skipped_is_asked_for_again(
+        outside, tmp_path, episode, published):
+    """A real transcriber now and then answers a stretch of speech with nothing at all.
+
+    It happened twice in one episode: the first half minute of a sponsor read, and ten
+    minutes after a foreign-language spot. Words nobody transcribed cannot be quoted, so
+    a break inside such a hole is cut late or not at all. Sent the hole again on its own,
+    the transcriber answered about it -- so the server asks, and the episode loses every
+    break, the skipped one included, exactly as if nothing had been skipped.
+    """
+    outside.serves("/audio/transcriptions", "application/json",
+                   episode.transcriber_skipping(episode.breaks[1]))
+
+    with podclean_server(outside, tmp_path,
+                         PODCLEANER_TRANSCRIBE_MAX_BYTES=str(1 << 30)) as podclean:
+        requests.get(f"{podclean}/rss", params=published)
+        played = requests.get(f"{podclean}/podcast", params=published).content
+        (tmp_path / "played.mp3").write_bytes(played)
+        assert decode_seconds(tmp_path / "played.mp3") == pytest.approx(
+            decode_seconds(episode.mp3) - removed(episode.breaks), abs=1.0)
+    assert outside.counts()["/audio/transcriptions"] == 2
+
+
+def test_the_transcriber_is_told_the_language_the_feed_declares(
+        outside, tmp_path, episode, published):
+    """Left to guess, it guessed from the first thing it heard.
+
+    An English episode that opened on a German advertisement came back with its first
+    minutes translated into German, so nothing the hosts said there could be quoted. The
+    feed says what language it is in; the transcriber is told.
+    """
+    outside.serves("/feed.xml", "application/rss+xml", f"""<?xml version="1.0"?>
+<rss version="2.0"><channel><title>Solved</title><language>en-us</language>
+<item><title>Failure</title><guid>{published['guid']}</guid>
+<enclosure url="{outside.url}/episode.mp3" type="audio/mpeg"/></item></channel></rss>""")
+    sent = []
+
+    def transcribe(body):
+        sent.append(body)
+        return episode.transcript
+
+    outside.serves("/audio/transcriptions", "application/json", transcribe)
+    with podclean_server(outside, tmp_path,
+                         PODCLEANER_TRANSCRIBE_MAX_BYTES=str(1 << 30)) as podclean:
+        requests.get(f"{podclean}/rss", params=published)
+        assert requests.get(f"{podclean}/podcast", params=published).status_code == 200
+    assert sent and all(b'name="language"\r\n\r\nen\r\n' in body for body in sent)
+
+
 
 def stop_segments_early(transcript, drop):
     """A transcription reply whose segments stop before its words do.

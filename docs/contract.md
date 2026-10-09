@@ -63,6 +63,7 @@ auth, 900 s, `multipart/form-data`:
 | `model` | `openai/whisper-large-v3-turbo` |
 | `response_format` | `verbose_json` |
 | `timestamp_granularities[]` | `segment` **and** `word`, sent twice |
+| `language` | the first two letters of the feed channel's `<language>`, lowercased; absent when the feed names none |
 
 Both granularities are required. The reply must carry top-level `segments` (each with
 `start`, `end`, `text`) and `words` (each with `start`, `end`, `word`); a reply with only
@@ -109,7 +110,10 @@ word for word. For a port that cannot, what it must contain:
 * the five categories — `sponsor_read`, `host_endorsement`, `cross_promo`, `self_promo`,
   `credits` — each defined, because only the first three are ever cut. `self_promo` has
   to name anything the same people make, another podcast they publish included, or the
-  model files the hosts' own second show under `cross_promo` and it is cut;
+  model files the hosts' own second show under `cross_promo` and it is cut; and it has
+  to stop there -- only what the hosts say is theirs, and a regional spot the publisher
+  inserted, in another language and with no announcer, is `sponsor_read`, or the model
+  files it under `self_promo` at 0.6 and it is left in;
 * the German words a break announces itself with — `Werbung`, `Anzeige`, `präsentiert
   von`, `und jetzt zurück zur Sendung` — next to the English ones, because the episodes
   this is measured on are German;
@@ -152,6 +156,15 @@ number. No overlap is added between pieces: a garbled word at a boundary can onl
 quote unfindable, which leaves an ad in. 24 MiB against the endpoint's 25: the multipart
 wrapper goes up too, and a request refused for being a few hundred bytes over costs the
 whole episode.
+
+Then every **hole** is sent up once more: a stretch of at least the constant below,
+including before the first cue and after the last, that no cue and no word with a
+duration covers. It goes as the frames starting inside it, split the same way. Its cues
+and words are shifted by its own start and the whole transcript is put in time order
+before it is numbered. Zero-length words the first replies left inside a filled hole,
+both ends included, are dropped: they are the lost words parked at its far end, and would
+otherwise be found twice. A hole whose second request fails or comes back empty stays a
+hole and is not an error.
 
 ## Cues, and how a break is placed on them
 
@@ -201,6 +214,7 @@ whole episode.
 | 6 / 3 | `plan.maxTokens` / `plan.minTokens` | how much of a quote is matched on, and how short it may wear down to |
 | 0.5 | `plan.minConfidence` | below this the model's segment is ignored |
 | 600 s | `plan.longestBreak` | a single cut longer than this refuses the whole plan |
+| 10 s | `episode.shortestHole` | a stretch with no words at least this long is transcribed again |
 | 0.2 | `plan.mostOfAnEpisode` | cuts totalling more than this share of the episode refuse the whole plan |
 | 3 s | `mp3.minimumSeconds` | fewer seconds of parsable frames and the publisher's reply is not audio |
 | `sponsor_read`, `host_endorsement`, `cross_promo` | `plan.cuttable` | the only categories ever cut |
@@ -241,7 +255,7 @@ port that changes it silently breaks the one tool that can prove the one rule.
 
 | file | written | what it is |
 |---|---|---|
-| `source.json` | when a feed names the episode | `{"url": <publisher enclosure>, "feed": <feed url>, "chapters_url": <publisher's marks or null>}`. Its presence is what makes an episode playable: no `source.json`, 404, and nothing goes out. |
+| `source.json` | when a feed names the episode | `{"url": <publisher enclosure>, "feed": <feed url>, "chapters_url": <publisher's marks or null>, "language": <two letters, absent when the feed names none>}`. Its presence is what makes an episode playable: no `source.json`, 404, and nothing goes out. |
 | `audio.mp3` | first play | when cut: the ID3 chapter tag (only if there are marks), then the kept frames — the publisher's own tag, Xing/Info frame and any bytes between frames are gone. Otherwise the publisher's bytes exactly as fetched. |
 | `chapters.json` | first play | the marks on the served timeline |
 | `transcript.vtt` | first play | the transcript on the served timeline |

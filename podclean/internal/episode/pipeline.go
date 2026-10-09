@@ -37,7 +37,7 @@ func (o *Orchestrator) pipeline(source store.Source) (r result) {
 	if r.file, r.err = checkAudio(source.URL, r.raw); r.err != nil {
 		return r
 	}
-	if r.text, r.err = o.transcribe(r.file); r.err != nil {
+	if r.text, r.err = o.transcribe(r.file, source.Language); r.err != nil {
 		return r
 	}
 	if r.reply, r.err = o.findAds(source, r.text); r.err != nil {
@@ -60,21 +60,44 @@ func checkAudio(url string, raw []byte) (*mp3.File, error) {
 	return file, nil
 }
 
-// transcribe sends the episode up in pieces and puts the answers back on one timeline.
-func (o *Orchestrator) transcribe(file *mp3.File) (*transcript.Transcript, error) {
+// shortestHole is the shortest stretch with no words in it that is sent to the
+// transcriber again. The transcriber now and then answers a stretch of speech with
+// nothing: 27 s of a sponsor read, and ten minutes after a foreign-language spot, in one
+// episode. Sent again on its own, each came back whole. A pause between sentences is a
+// second or two; a music bed that really is empty costs one short request.
+const shortestHole = 10.0
+
+// transcribe sends the episode up in pieces and puts the answers back on one timeline,
+// then sends every hole in that timeline up once more.
+//
+// A hole that fails again stays a hole, as it was before it was asked about: the first
+// pass is already a transcript, and a word that is missing only leaves advertising in.
+func (o *Orchestrator) transcribe(file *mp3.File, language string) (*transcript.Transcript, error) {
 	var parsed []transcript.Piece
 	for _, piece := range file.Pieces(o.MaxBytes) {
-		body, err := o.Outside.Transcribe(piece.Data)
-		if err != nil {
-			return nil, err
-		}
-		answer, err := transcript.Parse(body, piece.Start)
+		answer, err := o.hear(piece, language)
 		if err != nil {
 			return nil, err
 		}
 		parsed = append(parsed, answer)
 	}
+	heard := transcript.Join(parsed, file.Seconds())
+	for _, hole := range heard.Holes(shortestHole, file.Seconds()) {
+		for _, piece := range file.Within(hole, o.MaxBytes) {
+			if answer, err := o.hear(piece, language); err == nil {
+				parsed = append(parsed, answer.Filling(hole))
+			}
+		}
+	}
 	return transcript.Join(parsed, file.Seconds()), nil
+}
+
+func (o *Orchestrator) hear(piece mp3.Piece, language string) (transcript.Piece, error) {
+	body, err := o.Outside.Transcribe(piece.Data, language)
+	if err != nil {
+		return transcript.Piece{}, err
+	}
+	return transcript.Parse(body, piece.Start)
 }
 
 // findAds asks the models what is advertising, with the publisher's own chapter marks as

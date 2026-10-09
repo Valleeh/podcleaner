@@ -245,6 +245,32 @@ class Episode:
 
         return answer
 
+    def transcriber_skipping(self, skipped: Break):
+        """A transcriber that says nothing about one break the first time it hears it.
+
+        What the real one does: a stretch of the episode comes back with no segments and
+        no words, as if nobody spoke, and the next segment starts where the speech after
+        it does. Sent that stretch again on its own, it answers about it -- timed, as
+        always, from the start of what it was sent.
+
+        The first request must be the whole episode, and every later one is taken to be
+        the hole, which starts where the cue before the break ends.
+        """
+        per_second = BITRATE_KBPS * 1000 / 8
+        inside = [c for c in self.cues if skipped.first_cue <= c.number <= skipped.last_cue]
+        hole = next(c for c in self.cues if c.number == skipped.first_cue - 1).end
+        state = {"asked": 0}
+
+        def answer(posted: bytes) -> bytes:
+            audio = _posted_audio(posted)
+            state["asked"] += 1
+            if state["asked"] == 1:
+                heard = [c for c in self.cues if c not in inside]
+                return _reply(_rebased(heard, 0.0), len(audio) / per_second)
+            return _reply(_rebased(inside, hole), len(audio) / per_second)
+
+        return answer
+
 
 def _words() -> List[List[Word]]:
     """The episode as timed words, one list per run, each filling its run exactly.

@@ -35,6 +35,7 @@ type Source struct {
 	URL         string  `json:"url"`
 	Feed        string  `json:"feed"`
 	ChaptersURL *string `json:"chapters_url"`
+	Language    string  `json:"language,omitempty"` // two letters, from the feed's channel
 }
 
 // Key is the name of one episode's directory: the first 32 hex characters of the sha256

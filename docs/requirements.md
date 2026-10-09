@@ -77,6 +77,13 @@ description ends, not where words stamped past that end do.
 transcriber's description of the last cue stops before it.
 *Asserted by* `test_a_break_at_the_end_is_cut_when_the_transcriber_stops_before_its_words`.
 
+**13a.** A stretch of speech the transcriber answered with nothing is asked about again,
+and a break inside it is cut as if it had never been skipped.
+*Asserted by* `test_a_stretch_the_transcriber_skipped_is_asked_for_again`.
+
+**13b.** The transcriber is told the language the feed declares.
+*Asserted by* `test_the_transcriber_is_told_the_language_the_feed_declares`.
+
 **14.** An episode too long to be transcribed in one request is cut all the same, and its
 chapter marks land where they would have.
 *Asserted by* `test_an_episode_too_big_for_one_transcription_request_is_cut_all_the_same`.
