@@ -168,18 +168,21 @@ def test_an_episode_hours_long_is_cut_all_the_same(outside, tmp_path, episode, p
             decode_seconds(long) - removed(episode.breaks), abs=1.0)
 
 
+@pytest.mark.parametrize("rounds", [1, 2], ids=["filled-at-once", "filled-in-two"])
 def test_a_stretch_the_transcriber_skipped_is_asked_for_again(
-        outside, tmp_path, episode, published):
+        outside, tmp_path, episode, published, rounds):
     """A real transcriber now and then answers a stretch of speech with nothing at all.
 
-    It happened twice in one episode: the first half minute of a sponsor read, and ten
-    minutes after a foreign-language spot. Words nobody transcribed cannot be quoted, so
-    a break inside such a hole is cut late or not at all. Sent the hole again on its own,
-    the transcriber answered about it -- so the server asks, and the episode loses every
-    break, the skipped one included, exactly as if nothing had been skipped.
+    It happened at the jingle of nearly every break in one episode, and for ten minutes
+    after a foreign-language spot in it. Words nobody transcribed cannot be quoted, so a
+    break inside such a hole is cut late or not at all. Sent the hole again on its own,
+    the transcriber answered about it -- though after that spot only about the spot, and
+    the rest came back when what was still missing was asked about once more. So the
+    server asks until nothing is missing, and the episode loses every break, the skipped
+    one included, exactly as if nothing had been skipped.
     """
     outside.serves("/audio/transcriptions", "application/json",
-                   episode.transcriber_skipping(episode.breaks[1]))
+                   episode.transcriber_skipping(episode.breaks[1], rounds=rounds))
 
     with podclean_server(outside, tmp_path,
                          PODCLEANER_TRANSCRIBE_MAX_BYTES=str(1 << 30)) as podclean:
@@ -188,7 +191,38 @@ def test_a_stretch_the_transcriber_skipped_is_asked_for_again(
         (tmp_path / "played.mp3").write_bytes(played)
         assert decode_seconds(tmp_path / "played.mp3") == pytest.approx(
             decode_seconds(episode.mp3) - removed(episode.breaks), abs=1.0)
-    assert outside.counts()["/audio/transcriptions"] == 2
+    assert outside.counts()["/audio/transcriptions"] == 1 + rounds
+
+
+def test_a_quote_said_twice_in_its_break_is_cut_from_the_later_one(
+        outside, tmp_path, episode, published):
+    """A spot played twice back to back, named as one break, opens with the same words twice.
+
+    The last one in the episode this was found on did: forty seconds of it, refused whole
+    because its quote could be found in two places. Either place is inside what the model
+    named; the later one removes less, so that is where the cut starts -- the second
+    playing goes, and the first stays in rather than risk a second of anything else.
+    """
+    brk = episode.breaks[0]
+    later = next(c for c in episode.cues if c.number == brk.first_cue + 2)
+    assert later.number < brk.last_cue
+    reply = json.loads(episode.transcript)
+    said = {round(w.start, 3): text
+            for w, text in zip(later.words, brk.first_words.split())}
+    for word in reply["words"]:
+        if word["start"] in said:
+            word["word"] = f" {said[word['start']]}"
+    outside.serves("/audio/transcriptions", "application/json", reply)
+    outside.serves("/chat/completions", "application/json", model_reply([brk.as_segment()]))
+    lost = (brk.end - MARGIN_SECONDS) - (later.start + MARGIN_SECONDS)
+
+    with podclean_server(outside, tmp_path,
+                         PODCLEANER_TRANSCRIBE_MAX_BYTES=str(1 << 30)) as podclean:
+        requests.get(f"{podclean}/rss", params=published)
+        played = requests.get(f"{podclean}/podcast", params=published).content
+        (tmp_path / "played.mp3").write_bytes(played)
+        assert decode_seconds(tmp_path / "played.mp3") == pytest.approx(
+            decode_seconds(episode.mp3) - lost, abs=1.0)
 
 
 def test_the_transcriber_is_told_the_language_the_feed_declares(

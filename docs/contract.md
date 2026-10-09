@@ -157,14 +157,15 @@ quote unfindable, which leaves an ad in. 24 MiB against the endpoint's 25: the m
 wrapper goes up too, and a request refused for being a few hundred bytes over costs the
 whole episode.
 
-Then every **hole** is sent up once more: a stretch of at least the constant below,
+Then every **hole** is sent up again: a stretch of at least the constant below,
 including before the first cue and after the last, that no cue and no word with a
 duration covers. It goes as the frames starting inside it, split the same way. Its cues
 and words are shifted by its own start and the whole transcript is put in time order
-before it is numbered. Zero-length words the first replies left inside a filled hole,
-both ends included, are dropped: they are the lost words parked at its far end, and would
-otherwise be found twice. A hole whose second request fails or comes back empty stays a
-hole and is not an error.
+before it is numbered. Zero-length words that an earlier reply left inside a hole a
+later reply filled, both ends included, are dropped: they are the lost words parked at
+its far end, and would otherwise be there twice. The holes that remain are asked about
+again, round after round, up to the limit below; a round in which no request came back
+ends it. A hole whose request fails or comes back empty stays a hole and is not an error.
 
 ## Cues, and how a break is placed on them
 
@@ -193,9 +194,9 @@ hole and is not an error.
   named cues: compared as bare letters and digits, case folded, everything else stripped,
   Unicode-aware so that umlauts are letters. A transcript word with no letter or digit in
   it is dropped from the sequence first, so a quote matches across standalone
-  punctuation. At most six tokens of the quote are used, from the front. Found exactly
-  once, the first matched word's start is the break's start. Found more than once, the
-  segment is refused as ambiguous. Not found, the first token is dropped and it is tried
+  punctuation. At most six tokens of the quote are used, from the front. Found, the first
+  matched word's start is the break's start; found more than once, the last place it is
+  found is used, which removes the least. Not found, the first token is dropped and it is tried
   again, down to three tokens — every retry moving the start later, never earlier. Fewer
   than three tokens is refused.
 * **The end is where the last named cue ends.** No quote is asked for it: the cue that
@@ -215,6 +216,7 @@ hole and is not an error.
 | 0.5 | `plan.minConfidence` | below this the model's segment is ignored |
 | 600 s | `plan.longestBreak` | a single cut longer than this refuses the whole plan |
 | 10 s | `episode.shortestHole` | a stretch with no words at least this long is transcribed again |
+| 3 | `episode.holeRounds` | how many rounds of holes are asked about |
 | 0.2 | `plan.mostOfAnEpisode` | cuts totalling more than this share of the episode refuse the whole plan |
 | 3 s | `mp3.minimumSeconds` | fewer seconds of parsable frames and the publisher's reply is not audio |
 | `sponsor_read`, `host_endorsement`, `cross_promo` | `plan.cuttable` | the only categories ever cut |

@@ -96,21 +96,23 @@ func Parse(body []byte, start float64) (Piece, error) {
 // every break after the first one in the wrong episode entirely.
 //
 // A reply about a hole lands inside another reply's stretch, so everything is put in
-// time order before it is numbered. Around a hole the first reply often parked the words
-// it lost, all with no duration, at the far end; once the hole has its own reply those
-// would be the same words twice, and a quote found twice is refused, so they are dropped.
+// time order before it is numbered. Around a hole the reply before often parked the words
+// it lost, all with no duration, at the far end; once the hole has a reply of its own
+// those would be the same words twice, and a quote would be placed on the parked copy,
+// so they are dropped. Pieces come in the order they were asked for, so "before" is earlier in the
+// list.
 //
 // seconds is how long the audio is, and it is the only bound on the last cue below.
 func Join(pieces []Piece, seconds float64) *Transcript {
-	var holes []timeline.Span
-	for _, p := range pieces {
-		if p.hole != nil {
-			holes = append(holes, *p.hole)
-		}
-	}
 	t := &Transcript{}
 	var words []Word
-	for _, p := range pieces {
+	for i, p := range pieces {
+		var later []timeline.Span
+		for _, q := range pieces[i+1:] {
+			if q.hole != nil {
+				later = append(later, *q.hole)
+			}
+		}
 		at := p.start
 		for _, c := range p.cues {
 			c.Start += at
@@ -121,7 +123,7 @@ func Join(pieces []Piece, seconds float64) *Transcript {
 		for _, w := range p.words {
 			w.Start += at
 			w.End += at
-			if p.hole == nil && w.End == w.Start && inside(w.Start, holes) {
+			if w.End == w.Start && inside(w.Start, later) {
 				continue
 			}
 			words = append(words, w)

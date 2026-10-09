@@ -245,7 +245,7 @@ class Episode:
 
         return answer
 
-    def transcriber_skipping(self, skipped: Break):
+    def transcriber_skipping(self, skipped: Break, *, rounds: int = 1):
         """A transcriber that says nothing about one break the first time it hears it.
 
         What the real one does: a stretch of the episode comes back with no segments and
@@ -253,12 +253,18 @@ class Episode:
         it does. Sent that stretch again on its own, it answers about it -- timed, as
         always, from the start of what it was sent.
 
+        With ``rounds=2`` the second request answers only the first half of the break and
+        falls silent again, as the real one did after a foreign-language spot: only a
+        third request, starting where the second one's speech ended, gets the rest.
+
         The first request must be the whole episode, and every later one is taken to be
-        the hole, which starts where the cue before the break ends.
+        what is left of the hole, which starts where the last cue heard so far ends.
         """
         per_second = BITRATE_KBPS * 1000 / 8
         inside = [c for c in self.cues if skipped.first_cue <= c.number <= skipped.last_cue]
-        hole = next(c for c in self.cues if c.number == skipped.first_cue - 1).end
+        before = next(c for c in self.cues if c.number == skipped.first_cue - 1)
+        half = len(inside) // 2 if rounds == 2 else len(inside)
+        parts = [(before.end, inside[:half]), (inside[half - 1].end, inside[half:])]
         state = {"asked": 0}
 
         def answer(posted: bytes) -> bytes:
@@ -267,7 +273,8 @@ class Episode:
             if state["asked"] == 1:
                 heard = [c for c in self.cues if c not in inside]
                 return _reply(_rebased(heard, 0.0), len(audio) / per_second)
-            return _reply(_rebased(inside, hole), len(audio) / per_second)
+            hole, cues = parts[state["asked"] - 2]
+            return _reply(_rebased(cues, hole), len(audio) / per_second)
 
         return answer
 
@@ -276,9 +283,9 @@ def _words() -> List[List[Word]]:
     """The episode as timed words, one list per run, each filling its run exactly.
 
     A run is its line said over and over, and every saying is numbered at both ends:
-    ``line7 ... end7``.  The server refuses a quote it can find twice in the cues it was
-    given -- rightly -- so a fixture that repeated one line verbatim would test nothing
-    but that refusal.
+    ``line7 ... end7``.  The server places a quote it can find twice in the cues it was
+    given on the later place, so a fixture that repeated one line verbatim would test
+    nothing but that.
     """
     said = 0
     spoken: List[List[Word]] = []
@@ -426,7 +433,7 @@ def _refuse_alignment(run: Run, words: Sequence[Word], opens: Cue, closes: Cue) 
 def quote(words: Sequence[Word]) -> Tuple[str, Word]:
     """Three consecutive words out of ``words`` that occur in them exactly once.
 
-    The server refuses a quote it can find twice -- rightly -- and this episode is one line
+    The server places a quote it can find twice on the later place, and this episode is one line
     said over and over, so three words picked blindly are usually the same three words it
     said a minute earlier. Every saying carries a number at both ends, so a window that
     covers one is unique; this walks from the front until it finds such a window, and

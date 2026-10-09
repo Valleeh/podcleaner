@@ -173,7 +173,6 @@ const (
 )
 
 var errNotFound = errors.New("not in the cues the segment names")
-var errAmbiguous = errors.New("matches more than one place in the cues the segment names")
 
 // opening finds where the quoted first words are spoken, and returns the moment the break
 // begins.
@@ -181,6 +180,11 @@ var errAmbiguous = errors.New("matches more than one place in the cues the segme
 // Every retry drops the quote's first word, which moves the start later. So a quote the
 // model got slightly wrong costs seconds of advertising left in and can never cost a
 // second of programme.
+//
+// A quote found in more than one place starts at the last of them, for the same reason:
+// every place is inside the cues the model named, and the last removes the least. A spot
+// played twice back to back and named as one break opens with the same words twice --
+// the last in one episode did, and refusing it left forty seconds of it in.
 func opening(words []transcript.Word, quote string) (float64, error) {
 	tokens := normalise(quote)
 	if len(tokens) < minTokens {
@@ -191,12 +195,8 @@ func opening(words []transcript.Word, quote string) (float64, error) {
 	}
 	spoken, said := spokenWords(words)
 	for len(tokens) >= minTokens {
-		found := matches(said, tokens)
-		if len(found) > 1 {
-			return 0, errAmbiguous
-		}
-		if len(found) == 1 {
-			return spoken[found[0]].Start, nil
+		if found := matches(said, tokens); len(found) > 0 {
+			return spoken[found[len(found)-1]].Start, nil
 		}
 		tokens = tokens[1:]
 	}
