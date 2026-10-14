@@ -14,8 +14,9 @@ asserted* means exactly that: a test is written when it would have caught a bug.
 **1.** No second of programme is ever removed. Everything else gives way to this: where it
 is not certain that a stretch is advertising, it stays, and a refusal is never worse for
 the listener than doing nothing.
-*Asserted by* `./run verify` against the publisher's own ad-free master. The suite plays
-an episode of silence and can only check the arithmetic.
+*Asserted by* `./run verify` against the publisher's own ad-free master, and by
+`./run eval` over episodes whose advertising is known, before a change ships. The suite
+plays an episode of silence and can only check the arithmetic.
 
 ## Subscribing
 

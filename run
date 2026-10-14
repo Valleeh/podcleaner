@@ -19,7 +19,11 @@ usage:
                           it against the publisher's own ad-free master, and report the
                           advertising removed and whether any programme went with it.
                           Host-only: it needs the commercial episode.
-  ./run health [feed]     is the deployed thing working: process, code==HEAD, public
+  ./run eval [case ...] [--runs N] | --transcript <case>
+                          before a prompt or model change ships: the real server and
+                          model over var/eval/cases/, episodes whose ads are labelled.
+                          Host-only, and it costs a few cents.
+  ./run health [feed]    is the deployed thing working: process, code==HEAD, public
                           route, feed rewrite, last verdict.
   ./run test              the suite: the routes end to end on an episode it builds
                           itself. Needs Docker. No unit tests exist -- see CLAUDE.md.
@@ -55,6 +59,7 @@ serve() {
 
 case "${1:-help}" in
   verify)   shift; $PY tools/verify.py "$@" ;;
+  eval)     shift; $PY tools/eval.py "$@" ;;
   health)   shift; $PY tools/health.py "$@" ;;
   build)    docker build --build-arg SOURCE_DIGEST="$($PY tools/health.py --source-digest)" \
                          -t "$IMAGE" podclean ;;
