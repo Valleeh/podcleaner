@@ -112,13 +112,22 @@ word for word. For a port that cannot, what it must contain:
 
 * the transcript's format, `[cue] m:ss text`, one line per cue, and that it may be German;
 * the answer schema below, and "answer with the JSON object only";
-* the five categories — `sponsor_read`, `host_endorsement`, `cross_promo`, `self_promo`,
-  `credits` — each defined, because only the first three are ever cut. `self_promo` has
+* that the model names the show and its regular hosts first, in the answer, because
+  `self_promo` is decided by them: asked only whether a plug is "theirs", the model
+  reads it from the speaker's side, and another show's host trailing their own show is
+  filed as `self_promo` and left in;
+* the six categories — `sponsor_read`, `host_endorsement`, `cross_promo`, `self_promo`,
+  `credits`, `clip` — each defined, because only the first three are ever cut. `self_promo` has
   to name anything the same people make, another podcast they publish included, or the
   model files the hosts' own second show under `cross_promo` and it is cut; and it has
-  to stop there -- only what the hosts say is theirs, and a regional spot the publisher
+  to stop there -- only what these hosts say is theirs, and a regional spot the publisher
   inserted, in another language and with no announcer, is `sponsor_read`, or the model
-  files it under `self_promo` at 0.6 and it is left in;
+  files it under `self_promo` at 0.6 and it is left in; and a trailer for any other show,
+  on the same network too, is `cross_promo`, or the network's pre-roll trailers stay in.
+  `clip` is a clip the hosts play in order to talk about it -- a campaign ad above all.
+  Told only that such clips are programme, the model still reports them, as `cross_promo`,
+  with a reason that says they are programme, and they are cut; a category of their own
+  that is never cut takes the report harmlessly;
 * the German words a break announces itself with — `Werbung`, `Anzeige`, `präsentiert
   von`, `und jetzt zurück zur Sendung` — next to the English ones, because the episodes
   this is measured on are German;
@@ -140,13 +149,14 @@ word for word. For a port that cannot, what it must contain:
 * 4 to 20 chapters over the editorial content, titled in the episode's language, under
   60 characters, never inside a run reported as promotional.
 
-How well a prompt does this is measurable: mark the advertising in a handful of episodes
-by hand, then count the breaks that survive every mechanical check. Two rules that were
-tried and made it worse are recorded next to the prompt so that nobody adds them back.
+How well a prompt does this is measured by `./run eval`, over episodes whose advertising
+is labelled, several runs each. Rules that were tried and made it worse are recorded next
+to the prompt so that nobody adds them back.
 
-The answer, one JSON object:
+The answer, one JSON object; `show` and `hosts` are read by the model and by nothing else:
 
-    {"segments": [{"start_cue": int, "end_cue": int, "category": string,
+    {"show": string, "hosts": [string],
+     "segments": [{"start_cue": int, "end_cue": int, "category": string,
                    "confidence": number 0-1, "reason": string, "first_words": string,
                    "last_words": string}],
      "chapters": [{"cue": int, "title": string}]}

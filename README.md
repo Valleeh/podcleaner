@@ -270,6 +270,28 @@ against different bytes; if the publisher serves the same audio to both clients,
 nothing to measure and it says so. It reads the episode's directory from `var/episodes`,
 or from `PODCLEANER_STORE_ROOT` — point that at a copy or mount of the compose volume.
 
+Not every publisher has an ad-free master to compare with: Megaphone stitches advertising
+into what every client gets, and anew on every fetch. And `./run verify` judges one cut
+after it was served. A change to how advertising is found is judged before it ships, by
+`./run eval`: the real server and the real model, three runs each, over episodes from
+different shows whose advertising is labelled, so a change made for one bad episode
+cannot quietly break the others. Each episode is transcribed once; after that an eval
+pays only for the model, a few cents.
+
+```
+$ ./run eval
+...
+hot-split-happens      run 1  FAIL  cut     removed  232.4 s  (118 s)
+    ad partly in   0:00.0-1:28.3  3.0 s at the start, 40.3 s at the end  pre-roll: trailers for …
+    ad partly in   52:16.0-54:13.0  54.7 s at the start, 32.1 s at the end  trailers: Pivot live tour, …
+...
+hot-split-happens      0/3 runs pass  -- ad missed in 3, edges in 3
+```
+
+A run passes with no programme cut, no labelled break missed, and no more than a few
+seconds of a break left at either edge. The cases live under `var/eval/cases/`, never
+committed: `./run eval --transcript <case>` prints one to label it from.
+
 ## Development
 
 The server is Go; the suite and the tools are Python 3.11+. The suite starts the real
@@ -299,6 +321,7 @@ commands:
 ./run serve                     the server, in the image ./run build made, on the host's network
 ./run health [feed url]         is a ./run serve deployment working
 ./run verify <feed> <guid>      was a cut right (above)
+./run eval [case …]             does a change still find the ads and spare the programme (above)
 ./run save                      green suite, then stage everything
 ```
 

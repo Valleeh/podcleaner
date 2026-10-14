@@ -37,6 +37,17 @@ package classify
 // that occur only once changed nothing on the verifier and cost a policy violation on the
 // screening model.
 //
+// The clip category, and the show and hosts named first, came on 2026-10-14, measured with
+// ./run eval over four episodes, three runs each. Hacks On Tap plays campaign ads to talk
+// about them; told only that such clips are programme, the model reported them anyway,
+// as cross_promo, with a reason saying they were programme -- and 103 s of discussion
+// went in two of three runs. A category of their own that is never cut took them: 0 s of
+// programme in all twelve runs. And asked whether a plug is "theirs", the model judged
+// from the speaker's side: Ina Garten trailing her own show was self_promo and stayed.
+// Naming this show's hosts first, and tying self_promo to them, moved the network's
+// trailers to cross_promo in most runs -- not all: another show's live tour, plugged by
+// its own hosts, still reads to it as self_promo.
+//
 // last_words came back on 2026-10-09. Without them a cut ended wherever the model stopped
 // counting cues, and on a 3.8 h transcript with nothing wrong in it that took seven and
 // forty-five seconds of programme. They once caused every refusal there was -- taglines
@@ -53,8 +64,15 @@ A stretch in another language than the episode -- German in an English show -- i
 always an advertisement the publisher inserted for the listener's region. Read it as one
 unless it is plainly part of the conversation.
 
+THE SHOW AND ITS HOSTS
+Before anything else, find which show this is and who its regular hosts are: the show's
+own opening names them, and they are the voices that carry the conversation. Spots and
+trailers often come before that opening, voiced by people who introduce themselves and
+their own shows -- they are not hosts of this one. Write both down first in your answer;
+self_promo is decided by them.
+
 WHAT TO REPORT
-Every run of the episode that is promotional, one segment per run, in one of five
+Every run of the episode that is promotional, one segment per run, in one of six
 categories:
 
   sponsor_read      A paid advertisement for somebody who is not this show: a product, a
@@ -65,23 +83,36 @@ categories:
                     sponsor: the publisher inserts such spots by region.
   host_endorsement  A paid sponsor recommended by the host in their own voice, with no
                     announcer around it.
-  cross_promo       An advertisement or a trailer for a show these hosts have no hand in.
-  self_promo        This show talking about itself or about anything the same people make:
-                    its own live dates and tickets, its own membership, its own app or
-                    book, its own outro, a plug for its next episode -- and another podcast
-                    they publish. "Subscribe to X, which we put out" is self_promo, not
-                    cross_promo. If it is theirs, it is self_promo even when it is worded
-                    exactly like an advertisement. A live-date plug is self_promo, never
-                    sponsor_read. Only what the hosts themselves say is theirs is
-                    self_promo; when you cannot tell, it is not.
+  cross_promo       An advertisement or a trailer for any other show than this one, however
+                    it is voiced and whoever publishes it: a trailer in which another show's
+                    host presents their own show is cross_promo, on the same network too.
+  self_promo        A plug, spoken by one of the hosts you wrote down, for this show or for
+                    anything they make: its own live dates and tickets, its own membership,
+                    its own app or book, its own outro, a plug for its next episode -- and
+                    another podcast these hosts publish. "Subscribe to X, which we put out"
+                    is self_promo, not cross_promo. If it is theirs, it is self_promo even
+                    when it is worded exactly like an advertisement. These hosts' own live
+                    dates are self_promo, never sponsor_read; another show's live dates are
+                    cross_promo. The reason of a self_promo segment begins with the name of
+                    the host who says it, exactly as you wrote it down under "hosts". If no
+                    name from that list fits -- another show's host plugging their own show
+                    or tour -- it is cross_promo.
   credits           The closing credits: who produced it, who edited it, the music.
+  clip              A clip the hosts play in order to talk about it: a campaign ad, a
+                    commercial, a trailer, a news report, a speech. The hosts lead into it
+                    -- "listen to the ad they're running", "here's what he said" -- and
+                    talk about it afterwards. It is programme, however much it sounds like
+                    an advertisement: an advertisement is played to the listener, a clip is
+                    played to the hosts. Report it as clip, never as anything else.
 
 Stacked advertisements are separate segments, one per advertiser. The hand-off into a
 break and the return out of it -- "und jetzt zurück zur Sendung", "and now back to the
 show" -- belong to the break, not to the programme.
 
 WHERE ADVERTISING HIDES
-Before the episode starts, in the seconds before the hosts first speak. In the middle,
+Before the episode starts: spots and trailers ahead of the show's own opening, often
+several in a row, each voiced by somebody who is not a host. Report every one of them. In
+the middle,
 after a hand-off. And after the end: advertising very often follows the goodbye -- after
 "see you next time", after the credits, after the music. That run is still advertising and
 still belongs in your answer. Read to the last cue; do not stop at the sign-off. A break
@@ -131,7 +162,8 @@ you have reported as promotional.
 THE ANSWER
 Answer with the JSON object only. No prose around it, no code fence.
 
-{"segments": [{"start_cue": int, "end_cue": int, "category": string,
+{"show": string, "hosts": [string],
+ "segments": [{"start_cue": int, "end_cue": int, "category": string,
                "confidence": number between 0 and 1, "reason": string,
                "first_words": string, "last_words": string}],
  "chapters": [{"cue": int, "title": string}]}
