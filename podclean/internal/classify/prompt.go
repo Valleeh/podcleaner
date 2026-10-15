@@ -46,7 +46,12 @@ package classify
 // from the speaker's side: Ina Garten trailing her own show was self_promo and stayed.
 // Naming this show's hosts first, and tying self_promo to them, moved the network's
 // trailers to cross_promo in most runs -- not all: another show's live tour, plugged by
-// its own hosts, still reads to it as self_promo.
+// its own hosts, still read to it as self_promo, through a worked example and through a
+// rule that the reason must begin with a host's name (both tried, both ignored, gone).
+// What it does get right is the names: so every segment now carries its voices, and the
+// server files a self_promo none of whose voices is a host as cross_promo (reply.go).
+// Ad left in on the two Hacks On Tap episodes went from 74 s and 203-246 s to 24-41 s
+// and 176 s, the rest being quotes the server refuses; the Lage's own tour stays.
 //
 // last_words came back on 2026-10-09. Without them a cut ended wherever the model stopped
 // counting cues, and on a 3.8 h transcript with nothing wrong in it that took seven and
@@ -69,7 +74,8 @@ Before anything else, find which show this is and who its regular hosts are: the
 own opening names them, and they are the voices that carry the conversation. Spots and
 trailers often come before that opening, voiced by people who introduce themselves and
 their own shows -- they are not hosts of this one. Write both down first in your answer;
-self_promo is decided by them.
+self_promo is decided by them. Every segment then names its voices: who speaks in it, by
+name, spelled as you spelled the hosts when it is one of them; [] when nobody is named.
 
 WHAT TO REPORT
 Every run of the episode that is promotional, one segment per run, in one of six
@@ -93,11 +99,8 @@ categories:
                     is self_promo, not cross_promo. If it is theirs, it is self_promo even
                     when it is worded exactly like an advertisement. These hosts' own live
                     dates are self_promo, never sponsor_read; another show's live dates are
-                    cross_promo. The reason of a self_promo segment begins with the name of
-                    the host who says it, exactly as you wrote it down under "hosts". If no
-                    name from that list fits -- another show's host plugging their own show
-                    or tour -- it is cross_promo.
-  credits           The closing credits: who produced it, who edited it, the music.
+                    cross_promo.
+  credits          The closing credits: who produced it, who edited it, the music.
   clip              A clip the hosts play in order to talk about it: a campaign ad, a
                     commercial, a trailer, a news report, a speech. The hosts lead into it
                     -- "listen to the ad they're running", "here's what he said" -- and
@@ -164,8 +167,8 @@ Answer with the JSON object only. No prose around it, no code fence.
 
 {"show": string, "hosts": [string],
  "segments": [{"start_cue": int, "end_cue": int, "category": string,
-               "confidence": number between 0 and 1, "reason": string,
-               "first_words": string, "last_words": string}],
+               "confidence": number between 0 and 1, "voices": [string],
+               "reason": string, "first_words": string, "last_words": string}],
  "chapters": [{"cue": int, "title": string}]}
 
 start_cue and end_cue are cue numbers, taken out of the brackets. Never a timestamp:

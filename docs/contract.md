@@ -112,10 +112,11 @@ word for word. For a port that cannot, what it must contain:
 
 * the transcript's format, `[cue] m:ss text`, one line per cue, and that it may be German;
 * the answer schema below, and "answer with the JSON object only";
-* that the model names the show and its regular hosts first, in the answer, because
-  `self_promo` is decided by them: asked only whether a plug is "theirs", the model
-  reads it from the speaker's side, and another show's host trailing their own show is
-  filed as `self_promo` and left in;
+* that the model names the show and its regular hosts first, in the answer, and the
+  voices of every segment, because `self_promo` is decided by them: asked only whether a
+  plug is "theirs", the model reads it from the speaker's side, and another show's host
+  trailing their own show is filed as `self_promo` and left in. The names it gets right;
+  the comparison is the server's (below);
 * the six categories — `sponsor_read`, `host_endorsement`, `cross_promo`, `self_promo`,
   `credits`, `clip` — each defined, because only the first three are ever cut. `self_promo` has
   to name anything the same people make, another podcast they publish included, or the
@@ -153,13 +154,21 @@ How well a prompt does this is measured by `./run eval`, over episodes whose adv
 is labelled, several runs each. Rules that were tried and made it worse are recorded next
 to the prompt so that nobody adds them back.
 
-The answer, one JSON object; `show` and `hosts` are read by the model and by nothing else:
+The answer, one JSON object:
 
     {"show": string, "hosts": [string],
      "segments": [{"start_cue": int, "end_cue": int, "category": string,
-                   "confidence": number 0-1, "reason": string, "first_words": string,
-                   "last_words": string}],
+                   "confidence": number 0-1, "voices": [string], "reason": string,
+                   "first_words": string, "last_words": string}],
      "chapters": [{"cue": int, "title": string}]}
+
+`internal/classify`, `settleWhosePlug`: a `self_promo` segment none of whose `voices` is
+one of the `hosts` is filed as `cross_promo`, and so cut. A name is its words of three
+letters or more, lowercased, and two names are the same person when they share one --
+"Murphy" is "Mike Murphy". A segment naming no voices, or a reply naming no hosts, keeps
+the model's category: what cannot be told stays in. Both lists are read leniently, a
+single string as one name and anything else as nobody, so a malformed one never costs the
+reading. `show` is read by the model and by nothing else.
 
 ## Sending an episode up in pieces
 

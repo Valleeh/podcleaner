@@ -193,6 +193,11 @@ reply that could not be read.
 narrowed to the cues there are.
 *Asserted by* `test_a_break_named_by_a_cue_the_transcript_never_had_is_left_in`.
 
+**41.** The show's own hosts plugging their own things are left in; somebody else plugging
+their own show is cut, even when the model calls it the hosts' own; and a plug nobody is
+named in is left in.
+*Asserted by* `test_a_plug_for_somebody_elses_show_is_cut_even_when_called_the_hosts_own`.
+
 **31.** A plan that is not believable as a whole leaves the whole episode untouched: one
 break implausibly long, or breaks adding up to an implausible share of the episode.
 *Asserted by* `test_a_break_that_would_swallow_most_of_the_episode_is_not_cut`, whose one

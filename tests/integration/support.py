@@ -121,10 +121,14 @@ def _encode(body):
     return json.dumps(body).encode("utf-8") if isinstance(body, dict) else body.encode("utf-8")
 
 
-def model_reply(segments, chapters=()):
-    """An editorial decision in the completion endpoint's wire format."""
+def model_reply(segments, chapters=(), hosts=()):
+    """An editorial decision in the completion endpoint's wire format.
+
+    ``hosts`` is who the model says this show's hosts are, which it names before anything
+    else; left out, it names nobody.
+    """
     return {"choices": [{"message": {"content": json.dumps(
-        {"segments": segments, "chapters": list(chapters)})}}]}
+        {"hosts": list(hosts), "segments": segments, "chapters": list(chapters)})}}]}
 
 
 class Outside:

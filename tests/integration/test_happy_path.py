@@ -518,3 +518,29 @@ def test_a_cut_in_the_middle_ends_where_its_cue_does_and_not_where_its_words_wer
         assert decode_seconds(tmp_path / "played.mp3") == pytest.approx(
             decode_seconds(episode.mp3) - lost, abs=1.0), (
             "the cut reached past the cue's own end, into audio no cue described")
+
+
+@pytest.mark.parametrize("voices, cut", [(["Nora Quint"], True), (["Ann Lee"], False), ([], False)],
+                         ids=["somebody else", "a host", "nobody named"])
+def test_a_plug_for_somebody_elses_show_is_cut_even_when_called_the_hosts_own(
+        outside, tmp_path, episode, published, voices, cut):
+    """Whose plug it is turns on who speaks in it, and the model is only trusted to say who.
+
+    Asked whether a plug was the hosts' own, the model judged from the speaker's side: Ina
+    Garten trailing her own podcast, Kara Swisher her own tour, came back as the hosts' own
+    and stayed in. Who speaks, and who this show's hosts are, it names reliably -- so the
+    plug of somebody who is not a host is cut like any other show's trailer, the hosts' own
+    plug stays, and a plug nobody is named in stays too: what cannot be told is left in.
+    """
+    brk = episode.breaks[0]
+    segment = {**brk.as_segment(), "category": "self_promo", "voices": voices}
+    outside.serves("/chat/completions", "application/json",
+                   model_reply([segment], hosts=["Ann Lee", "Tom Berg"]))
+
+    with podclean_server(outside, tmp_path,
+                         PODCLEANER_TRANSCRIBE_MAX_BYTES=str(1 << 30)) as podclean:
+        requests.get(f"{podclean}/rss", params=published)
+        played = requests.get(f"{podclean}/podcast", params=published).content
+        (tmp_path / "played.mp3").write_bytes(played)
+        assert decode_seconds(tmp_path / "played.mp3") == pytest.approx(
+            decode_seconds(episode.mp3) - (removed([brk]) if cut else 0), abs=1.0)
