@@ -105,12 +105,16 @@ func (o *Orchestrator) published(feed, guid string) (Audio, bool) {
 
 // save writes a result down and says what the listener gets.
 //
-// The audio first, the sidecars next and the verdict last: a verdict is the record that
-// the work finished, so it must not exist before the work it describes. A result that
-// failed writes the verdict alone, so the next play does the work again. If the publisher
-// had sent audio by then the listener gets it, out of memory; if not, they are told why.
+// What was heard first, whatever came of it; then the audio, the sidecars and the
+// verdict last: a verdict is the record that the work finished, so it must not exist
+// before the work it describes. A result that failed writes no audio, so the next play
+// does the work again. If the publisher had sent audio by then the listener gets it, out
+// of memory; if not, they are told why.
 func (o *Orchestrator) save(feed, guid string, r result) (Audio, error) {
 	v := verdictOf(o.Spec, r)
+	if r.text != nil {
+		_ = o.Store.Put(feed, guid, store.HeardFile, heardJSON(r.text, r.file.Seconds()))
+	}
 	if r.err != nil {
 		o.record(feed, guid, v)
 		if r.file == nil {

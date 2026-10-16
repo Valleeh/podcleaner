@@ -18,7 +18,8 @@ Each case is a directory under ``var/eval/cases/`` -- commercial audio, never co
     audio.mp3    the episode as a podcatcher got it
     case.json    {"title", "language", "ads": [{"start", "end", "what", "optional"?}]}
     replies/     the transcription endpoint's answers, keyed by model and audio
-    runs/        every run's verdict.json, one directory per eval, to see what the model proposed
+    runs/        every run's verdict.json and heard.json, one directory per eval: what the
+                 model was shown and what it proposed
 
 ``ads`` are in seconds of ``audio.mp3``.  Everything outside them is programme.  An
 ``optional`` ad may be cut or left -- a host endorsement woven into the talk, or an ad the
@@ -142,8 +143,12 @@ def _seconds_into(case: Case, piece: bytes) -> float:
     return sum(f.duration for f in _frames_of(whole) if f.offset < at)
 
 
-def run_once(case: Case, key: str, live: list) -> dict:
-    """One listener's first play of the case, through the real server; its verdict."""
+def run_once(case: Case, key: str, live: list, keep: Path) -> dict:
+    """One listener's first play of the case, through the real server; its verdict.
+
+    What the server wrote -- verdict.json, and heard.json, the transcript the model was
+    asked about -- is kept as ``keep`` with those suffixes.
+    """
     outside = Outside()
     audio = (case.dir / "audio.mp3").read_bytes()
     outside.serves("/audio.mp3", "audio/mpeg", audio)
@@ -166,6 +171,9 @@ def run_once(case: Case, key: str, live: list) -> dict:
             for _ in range(360):
                 found = list(Path(tmp).glob("episodes/*/verdict.json"))
                 if found:
+                    for written in found[0].parent.glob("*.json"):
+                        if written.name in ("verdict.json", "heard.json"):
+                            keep.with_suffix(f".{written.name}").write_bytes(written.read_bytes())
                     return json.loads(found[0].read_text())
                 time.sleep(5)
             return {"state": "failed", "error": "no verdict after 30 minutes"}
@@ -264,9 +272,11 @@ def main(argv) -> int:
         runs.mkdir(parents=True, exist_ok=True)
         for run in range(1, args.runs + 1):
             started = time.time()
-            verdict = run_once(case, key, live)
-            (runs / f"{run}.json").write_text(json.dumps(verdict, indent=1))
+            verdict = run_once(case, key, live, runs / str(run))
+            (runs / f"{run}.verdict.json").write_text(json.dumps(verdict, indent=1))
             faults, lines = score(case, verdict)
+            if not (runs / f"{run}.heard.json").exists():
+                lines.append("the server wrote no heard.json")
             results.setdefault(case.name, []).append(faults)
             print(f"{case.name:22s} run {run}  {'FAIL' if faults else 'PASS'}  {verdict['state']:7s} "
                   f"removed {verdict.get('removed_seconds', 0):6.1f} s  ({time.time() - started:.0f} s)",

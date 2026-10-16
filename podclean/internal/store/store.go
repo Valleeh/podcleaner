@@ -15,13 +15,14 @@ import (
 	"strings"
 )
 
-// The five names. Three programs share them -- this server, `./run verify` and
-// `./run health` -- so renaming one silently breaks a tool rather than the server.
+// The six names. Four programs share them -- this server, `./run verify`, `./run health`
+// and `./run eval` -- so renaming one silently breaks a tool rather than the server.
 const (
 	SourceFile     = "source.json"
 	AudioFile      = "audio.mp3"
 	ChaptersFile   = "chapters.json"
 	TranscriptFile = "transcript.vtt"
+	HeardFile      = "heard.json"
 	VerdictFile    = "verdict.json"
 )
 

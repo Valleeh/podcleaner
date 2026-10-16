@@ -295,12 +295,13 @@ port that changes it silently breaks the one tool that can prove the one rule.
 | `audio.mp3` | first play | when cut: the ID3 chapter tag (only if there are marks), then the kept frames — the publisher's own tag, Xing/Info frame and any bytes between frames are gone. Otherwise the publisher's bytes exactly as fetched. |
 | `chapters.json` | first play | the marks on the served timeline |
 | `transcript.vtt` | first play | the transcript on the served timeline |
+| `heard.json` | first play, whenever the transcript was finished, first | the transcript the models and the cutter had, on the publisher's timeline: `{"duration_seconds", "cues": [{"cue", "start", "end", "text", "words": [{"start", "end", "text"}]}]}`, `cue` numbered as the model was shown it. For reading back what the model was asked about, and for labelling an episode for `./run eval`, without paying for it to be heard again. |
 | `verdict.json` | first play, always, last | what was decided |
 
 Every file is written to `<name>.tmp` and renamed, so a reader sees it whole or not at
-all. Audio first, documents next, verdict last — a verdict is the record that the work
-finished. When the state is `failed`, only `verdict.json` is written, so the next play
-retries. A failure after the audio was in hand (transcription, classification) serves the
+all. What was heard first, then audio, documents, and the verdict last — a verdict is the
+record that the work finished. When the state is `failed`, no audio is written, so the
+next play retries; `heard.json` is there too if the failure came after the transcript. A failure after the audio was in hand (transcription, classification) serves the
 publisher's own bytes meanwhile, out of memory; a failed fetch, or a reply that is not
 audio, is answered 502.
 
