@@ -50,8 +50,10 @@ There is no `python` and no `make` on this host. Use `./run`.
                                  # the real server and the real model, 3 runs per case, over
                                  # var/eval/cases/ (episodes whose ads are labelled). A case
                                  # passes with no programme cut and no labelled ad left in.
-                                 # Each new bad episode becomes a case; a change ships only
-                                 # when every case passes, not just the newest. A few cents.
+                                 # Each new bad episode becomes a case (--add, from the
+                                 # heard.json the live server keeps; no audio, nothing heard
+                                 # again); a change ships only when every case passes, not
+                                 # just the newest. A few cents.
     ./run health     # is the deployed thing actually working: process, code==HEAD,
                      # public route, feed rewrite, last verdict
     ./run test       # THE suite: the routes end to end on an episode it builds itself

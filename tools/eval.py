@@ -1,6 +1,8 @@
 """The model against episodes whose advertising is known: did programme go, did ads stay.
 
     ./run eval [case ...] [--runs N]     measure every case (or the ones named), N runs each
+    ./run eval --add <case> <feed> <guid>
+                                         make a case of an episode the live server played
     ./run eval --transcript <case>       print a case's transcript, to write its labels from
 
 A change to the prompt or the model is measured here, across every case, before it is
@@ -13,31 +15,32 @@ to; what the real model makes of a real transcript is only seen by asking it, wh
 money and comes out differently from run to run.  So this is host-only, like
 ``./run verify``, and runs each case several times.
 
-Each case is a directory under ``var/eval/cases/`` -- commercial audio, never committed:
+Each case is a directory under ``var/eval/cases/`` -- commercial content, never committed:
 
-    audio.mp3    the episode as a podcatcher got it
+    heard.json   the transcript, as the live server keeps it for every episode it plays
     case.json    {"title", "language", "ads": [{"start", "end", "what", "optional"?}]}
-    replies/     the transcription endpoint's answers, keyed by model and audio
+    silence.mp3  made here, once: silence as long as the episode
     runs/        every run's verdict.json and heard.json, one directory per eval: what the
                  model was shown and what it proposed
 
-``ads`` are in seconds of ``audio.mp3``.  Everything outside them is programme.  An
-``optional`` ad may be cut or left -- a host endorsement woven into the talk, or an ad the
-publisher baked into its master that no frame walk can tell from programme.
+``ads`` are in seconds of the episode.  Everything outside them is programme.  An
+``optional`` ad may be cut or left -- the show's own spots and tours, which the owner
+leaves in, or a hand-off into a break.
 
-The real server runs, as ``./run test`` runs it, against a local stand-in for the
-publisher (a feed and ``audio.mp3``) and for the transcriber, which answers from
-``replies/`` and asks OpenRouter only about audio it has not heard before.  The model is
-the real one, at the server's own setting.  So every stage a listener's episode goes
-through runs, and only the model's reading differs between runs.
+No audio is kept and nothing is heard again.  Nothing between the download and the cut
+listens to the audio -- the model reads the transcript, a cut is placed on its words --
+so the real server runs, as ``./run test`` runs it, on silence as long as the episode,
+against a stand-in transcriber that answers with ``heard.json``.  The model is the real
+one, at the server's own setting, and only its reading differs between runs.  Any
+episode the live server has played is a case the moment it is labelled.
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -49,10 +52,9 @@ import requests
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from tests.integration.episode import _posted_audio, _posted_field  # noqa: E402
-from tests.integration.support import Outside, podclean_server  # noqa: E402
-from tools.dai import _frames_of  # noqa: E402
+from tests.integration.support import Outside, ffmpeg, podclean_server  # noqa: E402
 from tools.health import _image_label, source_digest  # noqa: E402
+from tools.verify import episode_dir  # noqa: E402
 
 CASES = REPO / "var/eval/cases"
 OPENROUTER = "https://openrouter.ai/api/v1"
@@ -87,6 +89,10 @@ class Case:
     language: str
     ads: tuple[Ad, ...]
 
+    @property
+    def heard(self) -> dict:
+        return json.loads((self.dir / "heard.json").read_text())
+
 
 def load(name: str) -> Case:
     d = CASES / name
@@ -104,65 +110,64 @@ def _clock(t: float) -> str:
     return f"{int(t // 60)}:{t % 60:04.1f}"
 
 
-def transcriber(case: Case, key: str, live: list):
-    """The transcription endpoint, answering from ``replies/`` and asking OpenRouter once.
+def silence(case: Case) -> Path:
+    """Silence as long as the episode, made once: low bitrate, because nobody listens."""
+    path = case.dir / "silence.mp3"
+    if not path.exists():
+        ffmpeg(["-f", "lavfi", "-i", "anullsrc=channel_layout=mono:sample_rate=22050",
+                "-t", f"{case.heard['duration_seconds']:.3f}", "-c:a", "libmp3lame",
+                "-b:a", "16k", "-y"], writes=path)
+    return path
 
-    A reply is keyed by the model asked and the audio sent, so a server that cuts the
-    episode into different pieces, or asks about different holes, is answered by the real
-    endpoint rather than by a reply to some other question.  Where each piece starts in
-    the episode is written to ``replies/index.json`` for ``--transcript``.
+
+def transcriber(case: Case):
+    """The transcription endpoint, answering the episode with heard.json.
+
+    The server is run so that it sends the episode up in one request; that one is answered
+    with the whole transcript.  What it asks after that are the stretches with no words in
+    them -- and heard.json already holds whatever a second model heard there -- so those are
+    answered with nothing.
     """
-    replies = case.dir / "replies"
-    replies.mkdir(exist_ok=True)
+    heard = case.heard
+    whole = json.dumps({
+        "task": "transcribe", "duration": heard["duration_seconds"],
+        "text": " ".join(c["text"] for c in heard["cues"]),
+        "segments": [{"id": i, "start": c["start"], "end": c["end"], "text": f" {c['text']}"}
+                     for i, c in enumerate(heard["cues"])],
+        "words": [{"word": f" {w['text']}", "start": w["start"], "end": w["end"]}
+                  for c in heard["cues"] for w in c["words"]],
+    }).encode("utf-8")
+    nothing = json.dumps({"text": "", "segments": [], "words": []}).encode("utf-8")
+    asked = []
 
-    def answer(posted: bytes) -> bytes:
-        model, audio = _posted_field(posted, "model"), _posted_audio(posted)
-        name = hashlib.sha256(model.encode() + b"\0" + audio).hexdigest()[:32]
-        saved = replies / f"{name}.json"
-        if not saved.exists():
-            boundary = posted.split(b"\r\n", 1)[0][2:].decode()
-            reply = requests.post(f"{OPENROUTER}/audio/transcriptions", data=posted, timeout=900,
-                                  headers={"Authorization": f"Bearer {key}",
-                                           "Content-Type": f"multipart/form-data; boundary={boundary}"})
-            reply.raise_for_status()
-            saved.write_bytes(reply.content)
-            index_path = replies / "index.json"
-            index = json.loads(index_path.read_text()) if index_path.exists() else {}
-            index[name] = {"model": model, "start": _seconds_into(case, audio)}
-            index_path.write_text(json.dumps(index, indent=1))
-            live.append(name)
-        return saved.read_bytes()
+    def answer(_posted: bytes) -> bytes:
+        asked.append(1)
+        return whole if len(asked) == 1 else nothing
 
     return answer
 
 
-def _seconds_into(case: Case, piece: bytes) -> float:
-    """Where in ``audio.mp3`` a piece the server sent begins: its first frame, found."""
-    whole = (case.dir / "audio.mp3").read_bytes()
-    at = whole.find(piece[:4096])
-    return sum(f.duration for f in _frames_of(whole) if f.offset < at)
-
-
-def run_once(case: Case, key: str, live: list, keep: Path) -> dict:
+def run_once(case: Case, key: str, keep: Path) -> dict:
     """One listener's first play of the case, through the real server; its verdict.
 
     What the server wrote -- verdict.json, and heard.json, the transcript the model was
     asked about -- is kept as ``keep`` with those suffixes.
     """
     outside = Outside()
-    audio = (case.dir / "audio.mp3").read_bytes()
+    audio = silence(case).read_bytes()
     outside.serves("/audio.mp3", "audio/mpeg", audio)
     outside.serves("/feed.xml", "application/rss+xml", f"""<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel><title>{case.title}</title><language>{case.language}</language>
 <item><title>{case.title}</title><guid>eval</guid>
 <enclosure url="{outside.url}/audio.mp3" type="audio/mpeg" length="{len(audio)}"/></item>
 </channel></rss>""")
-    outside.serves("/audio/transcriptions", "application/json", transcriber(case, key, live))
+    outside.serves("/audio/transcriptions", "application/json", transcriber(case))
     try:
         with tempfile.TemporaryDirectory(prefix="podclean-eval-") as tmp, \
                 podclean_server(outside, Path(tmp), PODCLEANER_LLM_BASE_URL=OPENROUTER,
                                 PODCLEANER_LLM_SPEC=os.environ.get("PODCLEANER_LLM_SPEC", ""),
-                                PODCLEANER_LLM_API_KEY=key) as url:
+                                PODCLEANER_LLM_API_KEY=key,
+                                PODCLEANER_TRANSCRIBE_MAX_BYTES=str(1 << 30)) as url:
             feed = f"{outside.url}/feed.xml"
             requests.get(f"{url}/rss", params={"feed": feed}, timeout=120).raise_for_status()
             played = requests.get(f"{url}/podcast", params={"feed": feed, "guid": "eval"}, timeout=3600)
@@ -238,16 +243,26 @@ def _usage(key: str) -> float | None:
 
 
 def show_transcript(case: Case) -> None:
-    """The case's recorded transcript on the episode's own clock, one segment per line."""
-    replies = case.dir / "replies"
-    index = json.loads((replies / "index.json").read_text())
-    lines = []
-    for name, where in index.items():
-        for seg in json.loads((replies / f"{name}.json").read_text()).get("segments", []):
-            lines.append((where["start"] + seg["start"], where["start"] + seg["end"],
-                          "*" if "grok" in where["model"] else " ", seg["text"].strip()))
-    for start, end, hole, text in sorted(lines):
-        print(f"{_clock(start):>8} {_clock(end):>8} {hole} {text}")
+    """The case's transcript on the episode's own clock, one cue per line."""
+    for c in case.heard["cues"]:
+        print(f"[{c['cue']}] {_clock(c['start']):>8} {_clock(c['end']):>8}  {c['text']}")
+
+
+def add(name: str, feed: str, guid: str) -> int:
+    """A new case from an episode the live server played: its heard.json, no labels yet."""
+    played = episode_dir(feed, guid)
+    if not (played / "heard.json").exists():
+        print(f"no heard.json in {played}: the live server has not played this episode since it"
+              f" began keeping one")
+        return 2
+    d = CASES / name
+    d.mkdir(parents=True, exist_ok=False)
+    shutil.copy(played / "heard.json", d / "heard.json")
+    language = json.loads((played / "source.json").read_text()).get("language", "")
+    (d / "case.json").write_text(json.dumps(
+        {"title": name, "language": language, "notes": f"{feed} {guid}", "ads": []}, indent=1))
+    print(f"{d}: label its ads in case.json, from ./run eval --transcript {name}")
+    return 0
 
 
 def main(argv) -> int:
@@ -255,28 +270,34 @@ def main(argv) -> int:
     ap.add_argument("cases", nargs="*")
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--transcript", metavar="CASE")
+    ap.add_argument("--add", nargs=3, metavar=("CASE", "FEED", "GUID"))
     args = ap.parse_args(argv)
     if args.transcript:
         show_transcript(load(args.transcript))
         return 0
+    if args.add:
+        return add(*args.add)
     if "PODCLEAN_SERVER_CMD" not in os.environ and _image_label() != source_digest():
         print("the podclean image is not built from these sources: ./run build first")
         return 2
 
     key = _key()
     cases = [load(n) for n in (args.cases or sorted(p.name for p in CASES.iterdir() if p.is_dir()))]
-    before, live, results = _usage(key), [], {}
+    before, results = _usage(key), {}
     stamp = time.strftime("%Y%m%dT%H%M%S")
     for case in cases:
         runs = case.dir / "runs" / stamp
         runs.mkdir(parents=True, exist_ok=True)
         for run in range(1, args.runs + 1):
             started = time.time()
-            verdict = run_once(case, key, live, runs / str(run))
+            verdict = run_once(case, key, runs / str(run))
             (runs / f"{run}.verdict.json").write_text(json.dumps(verdict, indent=1))
             faults, lines = score(case, verdict)
-            if not (runs / f"{run}.heard.json").exists():
+            replayed = runs / f"{run}.heard.json"
+            if not replayed.exists():
                 lines.append("the server wrote no heard.json")
+            elif len(json.loads(replayed.read_text())["cues"]) != len(case.heard["cues"]):
+                lines.append("the server heard the replayed transcript differently: cue numbers moved")
             results.setdefault(case.name, []).append(faults)
             print(f"{case.name:22s} run {run}  {'FAIL' if faults else 'PASS'}  {verdict['state']:7s} "
                   f"removed {verdict.get('removed_seconds', 0):6.1f} s  ({time.time() - started:.0f} s)",
@@ -292,8 +313,7 @@ def main(argv) -> int:
               f"{'  -- ' + why if why else ''}")
     after = _usage(key)
     if before is not None and after is not None:
-        print(f"\ncost of this eval: about ${after - before:.3f} "
-              f"({len(live)} transcription request(s) went live)")
+        print(f"\ncost of this eval: about ${after - before:.3f}")
     return 0 if not any(fs for runs_faults in results.values() for fs in runs_faults) else 1
 
 

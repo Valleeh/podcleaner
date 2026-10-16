@@ -19,7 +19,7 @@ usage:
                           it against the publisher's own ad-free master, and report the
                           advertising removed and whether any programme went with it.
                           Host-only: it needs the commercial episode.
-  ./run eval [case ...] [--runs N] | --transcript <case>
+  ./run eval [case ...] [--runs N] | --add <case> <feed> <guid> | --transcript <case>
                           before a prompt or model change ships: the real server and
                           model over var/eval/cases/, episodes whose ads are labelled.
                           Host-only, and it costs a few cents.

@@ -218,6 +218,7 @@ Episodes live in the `episodes` volume at `/var/lib/podclean`, one directory eac
 ├── audio.mp3         what is served
 ├── chapters.json     chapter marks on the served timeline
 ├── transcript.vtt    transcript on the served timeline
+├── heard.json        the transcript the model read, on the publisher's timeline
 └── verdict.json      what was decided, and the removed intervals
 ```
 
@@ -275,8 +276,9 @@ into what every client gets, and anew on every fetch. And `./run verify` judges 
 after it was served. A change to how advertising is found is judged before it ships, by
 `./run eval`: the real server and the real model, three runs each, over episodes from
 different shows whose advertising is labelled, so a change made for one bad episode
-cannot quietly break the others. Each episode is transcribed once; after that an eval
-pays only for the model, a few cents.
+cannot quietly break the others. Nothing is heard again and no audio is kept: the
+server runs on silence as long as the episode, and a stand-in transcriber answers with the
+`heard.json` the live server kept. An eval pays only for the model, a few cents.
 
 ```
 $ ./run eval
@@ -290,7 +292,9 @@ hot-split-happens      0/3 runs pass  -- ad missed in 3, edges in 3
 
 A run passes with no programme cut, no labelled break missed, and no more than a few
 seconds of a break left at either edge. The cases live under `var/eval/cases/`, never
-committed: `./run eval --transcript <case>` prints one to label it from.
+committed. An episode that came out badly becomes one with
+`./run eval --add <case> <feed> <guid>`; `./run eval --transcript <case>` prints it to
+label its advertising from.
 
 ## Development
 
