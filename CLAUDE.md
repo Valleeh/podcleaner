@@ -23,7 +23,8 @@ and the suite alone, without reading the Elixir it replaced.
 
     podclean/         the server, Go, one package per thing it does
     tests/            the suite, Python, which knows the server only over HTTP
-    tools/            verify and health, which measure the deployed thing from outside
+    tools/            verify and health, which measure the deployed thing from outside,
+                      and eval, which measures a change before it is deployed
 
 The server was Python, then Elixir, and is Go since 2026-09-18; the suite did not change
 across either move, which is the evidence that it really is black-box. Two consequences
@@ -45,6 +46,14 @@ There is no `python` and no `make` on this host. Use `./run`.
 
     ./run verify <feed> <guid>   # THE acceptance measure: ad seconds removed, programme
                                  # frames lost, by frame walk against the publisher master
+    ./run eval [case ...]        # THE measure of a prompt or model change, before deploying:
+                                 # the real server and the real model, 3 runs per case, over
+                                 # var/eval/cases/ (episodes whose ads are labelled). A case
+                                 # passes with no programme cut and no labelled ad left in.
+                                 # Each new bad episode becomes a case (--add, from the
+                                 # heard.json the live server keeps; no audio, nothing heard
+                                 # again); a change ships only when every case passes, not
+                                 # just the newest. A few cents.
     ./run health     # is the deployed thing actually working: process, code==HEAD,
                      # public route, feed rewrite, last verdict
     ./run test       # THE suite: the routes end to end on an episode it builds itself
@@ -55,8 +64,10 @@ There is no `python` and no `make` on this host. Use `./run`.
                      # and then Go, and the suite did not change either time. The contract
                      # is the docstring of tests/integration/support.py.
     ./run build      # build the image the server runs in. The binary is compiled into
-                     # it, so every .go edit needs this before a restart -- ./run health
-                     # tells you which of the two you are missing.
+                     # it, so every .go edit -- and every regenerated cut cue,
+                     # podclean/internal/mp3/cue/*.mp3, which it embeds -- needs this
+                     # before a restart; ./run health tells you which of the two you are
+                     # missing.
     ./run serve      # run the server, in that image, on the host's network
     ./run save       # green suite, then stage everything
 
@@ -68,12 +79,14 @@ built from Debian 12 because that is the ffmpeg this host runs. The pin is about
 ruler, not about memory: the suite encodes the episode it plays and decodes what came
 back, and another ffmpeg can lay those frames out differently, so CI would be measuring a
 file this host would never have made. Every test
-runs there and nothing skips. `./run verify` stays host-only: it is the one thing
-that still needs the commercial episode.
+runs there and nothing skips. `./run verify` and `./run eval` stay host-only: they are
+the two things that need commercial episodes.
 `./run whisper`, `./run labels`, `./run ads` and `./run record` no longer exist: local
 whisper.cpp transcription was deleted (one paid API request now), and the hand-labelled
 ad-scoring suite was deleted because `./run verify` measures the same thing exactly,
-against the publisher's own master, with no labels to maintain.
+against the publisher's own master, with no labels to maintain. Labels came back with
+`./run eval` on 2026-10-14: Megaphone has no clean master, and a change tuned on the
+latest episode alone (the one-pass switch, tuned on SOLVED) cut 3 min of Hacks On Tap.
 `./run mutate` and `mutations.tsv` went on 2026-09-12, at the owner's call: the gate
 checked that the tests could fail, but nobody could read it, and an unreadable gate is
 one nobody will keep honest. Do not rebuild it.
@@ -86,7 +99,8 @@ There is no `ffmpeg`, `ffprobe` or `python` on `PATH`; ffmpeg runs only inside t
 `whisper-cpp:local`, which is the Debian 12 ffmpeg CI builds). The **suite** runs
 it, to build the episode it plays and to measure what came back; `PODCLEAN_TEST_FFMPEG_IMAGE`
 points it elsewhere. The server does not: it cuts by leaving whole MP3 frames out, in
-process. One heavy job at a time; three background jobs were already killed here for
+process, and puts in the tone that marks each cut from frames it embeds. Those were
+made once with the same image by `podclean/internal/mp3/cue/make.sh`, run by hand. One heavy job at a time; three background jobs were already killed here for
 memory.
 
 ## Never commit

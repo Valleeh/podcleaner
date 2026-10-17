@@ -2,10 +2,11 @@
 //
 // One episode has two timelines: the publisher's, which every time the transcriber and
 // the model speak of is on, and the served one, which is the publisher's with the cut
-// intervals taken out. Everything that has to move between them moves the same way --
-// earlier by exactly the audio removed before it -- and everything that fell inside a
-// removed interval is dropped rather than moved to the join. That is one rule, so it
-// lives in one place and the chapter marks and the transcript cannot disagree about it.
+// intervals taken out and a short tone put in where each of them was. Everything that has
+// to move between them moves the same way -- earlier by exactly the audio removed before
+// it, later by the tones before it -- and everything that fell inside a removed interval
+// is dropped rather than moved to the join. That is one rule, so it lives in one place and
+// the chapter marks and the transcript cannot disagree about it.
 package timeline
 
 import "sort"
@@ -39,9 +40,16 @@ func Merge(spans []Span) []Span {
 	return out
 }
 
-// A Timeline is the served audio expressed as what was taken out of the publisher's.
+// A Timeline is the served audio expressed as what was taken out of the publisher's, and
+// how long the tone is that stands where each removed span was (none when Cue is 0).
 type Timeline struct {
 	Removed []Span
+	Cue     float64
+}
+
+// Served is how long the served audio is, for a publisher's episode this long.
+func (t Timeline) Served(seconds float64) float64 {
+	return seconds - t.Total() + t.Cue*float64(len(t.Removed))
 }
 
 // Total is how much audio is gone.
@@ -77,7 +85,7 @@ func (t Timeline) Touches(s Span) bool {
 }
 
 // At is this moment on the served timeline: earlier by exactly the audio removed before
-// it.
+// it, and later by the tone each of those cuts left in its place.
 func (t Timeline) At(at float64) float64 {
 	moved := at
 	for _, s := range t.Removed {
@@ -85,7 +93,7 @@ func (t Timeline) At(at float64) float64 {
 			break
 		}
 		if at >= s.End {
-			moved -= s.Seconds()
+			moved -= s.Seconds() - t.Cue
 		} else {
 			moved -= at - s.Start
 		}
@@ -100,8 +108,8 @@ type Chapter struct {
 }
 
 // Chapters is the marks as they fall on the served audio: a mark whose audio was removed
-// is dropped rather than moved to the join, and the rest move by exactly what was removed
-// before them.
+// is dropped rather than moved to the join, and the rest move as At moves them -- by
+// exactly what was removed before them, less the tone each of those cuts left.
 //
 // Dropped, because moving it would stand an advertiser's name over the programme that
 // follows the cut. The cost is that the stretch after a cut carries the title of the

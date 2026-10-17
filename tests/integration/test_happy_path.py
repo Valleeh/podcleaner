@@ -9,30 +9,31 @@ The episode is built for the run, in :mod:`tests.integration.episode`: 73 minute
 timings of the real one this suite used to play, four breaks in it, silent.  The model's
 reply is written here, naming each break's cues and quoting its first words, and what
 that implies follows from `README.md`: a cut begins 1.5 s after the break's first word
-and ends 1.5 s before its last cue does, so a break loses that span less two margins and
-the episode loses the four of them together.  The episode declares where the breaks are;
+and ends 1.5 s before its last cue does, so a break loses that span less two margins, a
+short tone takes its place, and the episode loses the four of them together.  The episode declares where the breaks are;
 the margin comes from the README; nothing here asks the server what it meant to do.
 
 The only thing left real besides the server is ffmpeg, in Docker: "the file is shorter by
-exactly what was removed" is a claim about audio, and a faked cutter would make it a claim
+exactly what was removed, less a tone per cut" is a claim about audio, and a faked cutter would make it a claim
 about nothing.
 """
 
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 import requests
 
-from tests.integration.episode import MARGIN_SECONDS, quote, removed
+from tests.integration.episode import CUE_SECONDS, MARGIN_SECONDS, cuts, quote, shorter_by
 from tests.integration.support import decode_seconds, ffmpeg, model_reply, podclean_server
 
 def test_a_listener_subscribes_and_plays_one_episode(outside, tmp_path, episode, published):
-    # What the reply implies: every break but a margin at each end, and every chapter
-    # earlier by all of the advertising that used to run before it.
-    lost = removed(episode.breaks)
-    lost_before = {mark.title: removed(episode.breaks, before=mark.start)
+    # What the reply implies: every break but a margin at each end, with a tone in its
+    # place, and every chapter earlier by all of that which used to run before it.
+    lost = shorter_by(episode.breaks)
+    lost_before = {mark.title: shorter_by(episode.breaks, before=mark.start)
                    for mark in episode.chapters}
 
     wanted = published
@@ -48,7 +49,7 @@ def test_a_listener_subscribes_and_plays_one_episode(outside, tmp_path, episode,
         assert f"{podclean}/podcast?" in rss
         assert "<title>Oh Canada!</title>" in rss
 
-        # Play: the publisher's audio minus the advertising.
+        # Play: the publisher's audio minus the advertising, a tone where each break was.
         played = requests.get(f"{podclean}/podcast", params=wanted).content
         (tmp_path / "played.mp3").write_bytes(played)
         assert decode_seconds(tmp_path / "played.mp3") == pytest.approx(
@@ -85,7 +86,8 @@ def test_a_listener_subscribes_and_plays_one_episode(outside, tmp_path, episode,
         assert "charset" not in head.headers["Content-Type"]
 
         # The two documents describe the audio that was played: every mark and every line
-        # moved up by exactly the audio removed before it, the advertising lines gone.
+        # moved up by exactly the audio removed before it and back by the tones before it,
+        # the advertising lines gone.
         chapters = requests.get(f"{podclean}/chapters", params=wanted).json()["chapters"]
         assert [c["title"] for c in chapters] == [m.title for m in episode.chapters]
         assert [c["startTime"] for c in chapters] == pytest.approx(
@@ -121,8 +123,8 @@ def test_an_episode_too_big_for_one_transcription_request_is_cut_all_the_same(
     outside.serves("/audio/transcriptions", "application/json", episode.transcriber(),
                    refuses_over=TRANSCRIBE_LIMIT)
 
-    lost = removed(episode.breaks)
-    lost_before = {mark.title: removed(episode.breaks, before=mark.start)
+    lost = shorter_by(episode.breaks)
+    lost_before = {mark.title: shorter_by(episode.breaks, before=mark.start)
                    for mark in episode.chapters}
 
     wanted = published
@@ -165,7 +167,7 @@ def test_an_episode_hours_long_is_cut_all_the_same(outside, tmp_path, episode, p
         played = requests.get(f"{podclean}/podcast", params=published).content
         (tmp_path / "played.mp3").write_bytes(played)
         assert decode_seconds(tmp_path / "played.mp3") == pytest.approx(
-            decode_seconds(long) - removed(episode.breaks), abs=1.0)
+            decode_seconds(long) - shorter_by(episode.breaks), abs=1.0)
 
 
 def played_seconds(outside, tmp_path, published) -> float:
@@ -202,7 +204,7 @@ def test_a_stretch_the_transcriber_skipped_is_asked_for_again(
     outside.serves("/audio/transcriptions", "application/json",
                    episode.transcriber_skipping(episode.breaks[1], early=early, deaf=deaf))
     assert played_seconds(outside, tmp_path, published) == pytest.approx(
-        decode_seconds(episode.mp3) - removed(episode.breaks), abs=1.0)
+        decode_seconds(episode.mp3) - shorter_by(episode.breaks), abs=1.0)
     assert outside.counts()["/audio/transcriptions"] == 2
 
 
@@ -224,7 +226,7 @@ def test_the_publishers_master_is_cut_where_one_is_served(
     outside.serves_plain_clients("/episode.mp3", episode.mp3.read_bytes())
     outside.serves("/audio/transcriptions", "application/json", episode.transcriber())
     assert played_seconds(outside, tmp_path, published) == pytest.approx(
-        decode_seconds(episode.mp3) - removed(episode.breaks), abs=1.0)
+        decode_seconds(episode.mp3) - shorter_by(episode.breaks), abs=1.0)
 
 
 def test_a_master_that_is_not_the_episode_is_not_used(outside, tmp_path, episode, published):
@@ -238,7 +240,7 @@ def test_a_master_that_is_not_the_episode_is_not_used(outside, tmp_path, episode
     audio = episode.mp3.read_bytes()
     outside.serves_plain_clients("/episode.mp3", audio[:len(audio) // 10])
     assert played_seconds(outside, tmp_path, published) == pytest.approx(
-        decode_seconds(episode.mp3) - removed(episode.breaks), abs=1.0)
+        decode_seconds(episode.mp3) - shorter_by(episode.breaks), abs=1.0)
     assert outside.counts()["/episode.mp3"] == 2
 
 
@@ -256,7 +258,7 @@ def test_the_model_reads_the_episode_twice_and_every_break_either_finds_is_cut(
     outside.serves("/chat/completions", "application/json",
                    lambda _body: json.dumps(readings.pop(0)).encode("utf-8"))
     assert played_seconds(outside, tmp_path, published) == pytest.approx(
-        decode_seconds(episode.mp3) - removed(episode.breaks), abs=1.0)
+        decode_seconds(episode.mp3) - shorter_by(episode.breaks), abs=1.0)
     assert outside.counts()["/chat/completions"] == 2
 
 
@@ -272,7 +274,7 @@ def test_a_break_named_one_cue_too_far_ends_with_its_last_words(
     outside.serves("/chat/completions", "application/json", model_reply(
         [{**brk.as_segment(), "end_cue": brk.last_cue + 1}]))
     assert played_seconds(outside, tmp_path, published) == pytest.approx(
-        decode_seconds(episode.mp3) - removed([brk]), abs=1.0)
+        decode_seconds(episode.mp3) - shorter_by([brk]), abs=1.0)
 
 
 def test_a_spot_played_twice_is_cut_from_its_first_playing(
@@ -298,7 +300,7 @@ def test_a_spot_played_twice_is_cut_from_its_first_playing(
         [{**brk.as_segment(), "start_cue": opens.number, "first_words": first_words}]))
     assert played_seconds(outside, tmp_path, published) == pytest.approx(
         decode_seconds(episode.mp3)
-        - ((brk.last_end - MARGIN_SECONDS) - (opens.start + MARGIN_SECONDS)), abs=1.0)
+        - ((brk.last_end - MARGIN_SECONDS) - (opens.start + MARGIN_SECONDS)) + CUE_SECONDS, abs=1.0)
 
 
 def test_only_audio_frames_are_sent_to_the_transcriber(outside, tmp_path, episode, published):
@@ -353,7 +355,7 @@ def test_a_quote_said_twice_in_its_break_is_cut_from_the_later_one(
         played = requests.get(f"{podclean}/podcast", params=published).content
         (tmp_path / "played.mp3").write_bytes(played)
         assert decode_seconds(tmp_path / "played.mp3") == pytest.approx(
-            decode_seconds(episode.mp3) - lost, abs=1.0)
+            decode_seconds(episode.mp3) - lost + CUE_SECONDS, abs=1.0)
 
 
 def test_a_quote_parked_again_with_no_duration_is_not_cut_from(
@@ -380,7 +382,7 @@ def test_a_quote_parked_again_with_no_duration_is_not_cut_from(
         played = requests.get(f"{podclean}/podcast", params=published).content
         (tmp_path / "played.mp3").write_bytes(played)
         assert decode_seconds(tmp_path / "played.mp3") == pytest.approx(
-            decode_seconds(episode.mp3) - removed([brk]), abs=1.0)
+            decode_seconds(episode.mp3) - shorter_by([brk]), abs=1.0)
 
 
 def test_a_quote_the_transcriber_split_into_two_words_is_found(
@@ -408,7 +410,7 @@ def test_a_quote_the_transcriber_split_into_two_words_is_found(
         played = requests.get(f"{podclean}/podcast", params=published).content
         (tmp_path / "played.mp3").write_bytes(played)
         assert decode_seconds(tmp_path / "played.mp3") == pytest.approx(
-            decode_seconds(episode.mp3) - removed([brk]), abs=1.0)
+            decode_seconds(episode.mp3) - shorter_by([brk]), abs=1.0)
 
 
 def test_the_transcriber_is_told_the_language_the_feed_declares(
@@ -479,7 +481,7 @@ def test_a_break_at_the_end_is_cut_when_the_transcriber_stops_before_its_words(
         played = requests.get(f"{podclean}/podcast", params=wanted).content
         (tmp_path / "played.mp3").write_bytes(played)
         assert decode_seconds(tmp_path / "played.mp3") == pytest.approx(
-            decode_seconds(episode.mp3) - lost, abs=1.0), (
+            decode_seconds(episode.mp3) - lost + CUE_SECONDS, abs=1.0), (
             "the break at the end was not cut to its words: the transcriber's last "
             "segment ended before they did")
 
@@ -516,5 +518,72 @@ def test_a_cut_in_the_middle_ends_where_its_cue_does_and_not_where_its_words_wer
         played = requests.get(f"{podclean}/podcast", params=published).content
         (tmp_path / "played.mp3").write_bytes(played)
         assert decode_seconds(tmp_path / "played.mp3") == pytest.approx(
-            decode_seconds(episode.mp3) - lost, abs=1.0), (
+            decode_seconds(episode.mp3) - lost + CUE_SECONDS, abs=1.0), (
             "the cut reached past the cue's own end, into audio no cue described")
+
+
+@pytest.mark.parametrize("voices, cut", [(["Nora Quint"], True), (["Ann Lee"], False), ([], False)],
+                         ids=["somebody else", "a host", "nobody named"])
+def test_a_plug_for_somebody_elses_show_is_cut_even_when_called_the_hosts_own(
+        outside, tmp_path, episode, published, voices, cut):
+    """Whose plug it is turns on who speaks in it, and the model is only trusted to say who.
+
+    Asked whether a plug was the hosts' own, the model judged from the speaker's side: Ina
+    Garten trailing her own podcast, Kara Swisher her own tour, came back as the hosts' own
+    and stayed in. Who speaks, and who this show's hosts are, it names reliably -- so the
+    plug of somebody who is not a host is cut like any other show's trailer, the hosts' own
+    plug stays, and a plug nobody is named in stays too: what cannot be told is left in.
+    """
+    brk = episode.breaks[0]
+    segment = {**brk.as_segment(), "category": "self_promo", "voices": voices}
+    outside.serves("/chat/completions", "application/json",
+                   model_reply([segment], hosts=["Ann Lee", "Tom Berg"]))
+
+    with podclean_server(outside, tmp_path,
+                         PODCLEANER_TRANSCRIBE_MAX_BYTES=str(1 << 30)) as podclean:
+        requests.get(f"{podclean}/rss", params=published)
+        played = requests.get(f"{podclean}/podcast", params=published).content
+        (tmp_path / "played.mp3").write_bytes(played)
+        assert decode_seconds(tmp_path / "played.mp3") == pytest.approx(
+            decode_seconds(episode.mp3) - (shorter_by([brk]) if cut else 0), abs=1.0)
+
+
+def sounding(path) -> list:
+    """Every stretch of ``path`` that is not silence, as (start, end) seconds.
+
+    The episode this suite plays is silence, so in what it serves back anything that sounds
+    is something the server put there.  A gap shorter than a tenth of a second is not a
+    stretch of silence: the tone's own two beeps are one sound.
+    """
+    report = ffmpeg(["-i", f"/in/{path.name}", "-af", "silencedetect=noise=-60dB:d=0.1",
+                     "-f", "null", "-"], reads=path)
+    quiet = [float(v) for v in re.findall(r"silence_(?:start|end): (-?[\d.]+)", report)]
+    edges = [0.0, *quiet, decode_seconds(path)]
+    return [(a, b) for a, b in zip(edges[::2], edges[1::2]) if b - a > 0.01]
+
+
+def test_every_cut_is_marked_by_a_tone_heard_there_and_nowhere_else(
+        outside, tmp_path, episode, published):
+    """The owner listens for the cuts: every one of them is a short double beep.
+
+    Heard where the cut is -- at the join on the served timeline, each earlier by what the
+    cuts before it took out and later by the tones before it -- and nowhere else, as long as
+    the tone itself.
+    """
+    joined = cuts(episode.breaks)
+    expected, gone = [], 0.0
+    for k, (start, end) in enumerate(joined):
+        expected.append(start - gone + k * CUE_SECONDS)
+        gone += end - start
+
+    with podclean_server(outside, tmp_path,
+                         PODCLEANER_TRANSCRIBE_MAX_BYTES=str(1 << 30)) as podclean:
+        requests.get(f"{podclean}/rss", params=published)
+        played = requests.get(f"{podclean}/podcast", params=published).content
+        (tmp_path / "played.mp3").write_bytes(played)
+
+    heard = sounding(tmp_path / "played.mp3")
+    assert len(heard) == len(joined), f"heard {heard}, expected one tone at each of {expected}"
+    for (start, end), at in zip(heard, expected):
+        assert start == pytest.approx(at, abs=0.1)
+        assert 0.2 < end - start <= CUE_SECONDS + 0.05

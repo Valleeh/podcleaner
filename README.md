@@ -5,9 +5,11 @@
 PodClean is a self-hosted service that removes advertising from podcast episodes.
 Subscribe to a podcast through PodClean instead of through its publisher, and when your
 app downloads an episode it gets the publisher's own audio with the advertising breaks
-cut out. Titles, episode list, show notes and publication dates stay the same. Nothing is
-re-encoded: what remains is the publisher's own MP3 frames. Chapter marks and a
-transcript, timed to the audio it serves, come with every cut episode.
+cut out, and a short double beep where each break was, so you hear where every cut is.
+Titles, episode list, show notes and publication dates stay the same. Nothing is
+re-encoded: what remains is the publisher's own MP3 frames, and the beep is frames
+encoded once and built in. Chapter marks and a transcript, timed to the audio it serves,
+come with every cut episode.
 
 ```mermaid
 flowchart LR
@@ -27,7 +29,7 @@ flowchart LR
 | **First download** | PodClean downloads, transcribes and classifies the episode before sending it: a few minutes, rising with the episode's length. Your app waits. |
 | **Later downloads** | Served from disk, byte-identical, no new API calls. |
 | **Cost** | Transcription and classification through [OpenRouter](https://openrouter.ai): a few cents per episode, rising with length. Every episode is paid for once. |
-| **Audio** | MP3 only. Whole frames are left out; nothing is re-encoded. |
+| **Audio** | MP3 only. Whole frames are left out, a short beep put in where they were; nothing is re-encoded. |
 | **Chapters and transcript** | Generated in the same pass, adjusted for the removed audio, and written into the MP3 as well. Whether your app shows them depends on the app. |
 
 Episodes are processed **on demand**, when your app asks for them, not when the feed
@@ -127,8 +129,8 @@ flowchart TD
     D --> E[Transcribe with word timings]
     E --> F[Models mark the advertising and the chapters]
     F --> G[Check every break's quoted words and cue range]
-    G --> H[Leave the frames of each verified break out]
-    H --> I[Shift chapters and transcript by what was removed]
+    G --> H[Leave the frames of each verified break out, a beep in their place]
+    H --> I[Shift chapters and transcript by what was removed and the beeps]
     I --> J[Store and serve]
 ```
 
@@ -147,8 +149,9 @@ flowchart TD
    whose cue numbers do not exist, or that the model is not confident about is left in. A
    plan that is not believable as a whole — one break over 10 minutes, or breaks adding up
    to more than a fifth of the episode — is thrown away entire.
-5. **Cut and publish.** The frames inside each verified break are left out. Chapter marks
-   and transcript lines move earlier by exactly the audio removed before them; anything
+5. **Cut and publish.** The frames inside each verified break are left out, and a short
+   beep is put in where they were. Chapter marks and transcript lines move earlier by
+   exactly the audio removed before them, and later by the beeps before them; anything
    inside a cut is dropped rather than moved to the join. The marks are also written into
    the MP3, because some apps read those and ignore the feed's link.
 
@@ -167,10 +170,15 @@ on leaving advertising in:
                  break as the model reported it
                  |<---------------------------------->|
 before:   SHOW   | 1.5 s |        ADVERTISING         | 1.5 s |   SHOW
-after:    SHOW   | 1.5 s |                            | 1.5 s |   SHOW
+after:    SHOW   | 1.5 s |beep|                        | 1.5 s |   SHOW
 ```
 
 *Illustration; actual cuts land on MP3 frame edges, 26 ms apart.*
+
+Every cut is marked by a short double beep, 0.34 s at 44.1 kHz, where the cut is: listen
+for it, and you hear where something was taken out and can tell whether it was advertising. It
+exists for 44.1, 48 and 32 kHz stereo and 44.1 kHz mono, which is every episode this
+server has met; an episode in any other format is cut without one.
 
 Only paid reads, host endorsements and trailers for other shows are cut. The show's own
 promotion — its live dates, its other podcast, its outro — and the credits stay in. Whole
@@ -218,6 +226,7 @@ Episodes live in the `episodes` volume at `/var/lib/podclean`, one directory eac
 ├── audio.mp3         what is served
 ├── chapters.json     chapter marks on the served timeline
 ├── transcript.vtt    transcript on the served timeline
+├── heard.json        the transcript the model read, on the publisher's timeline
 └── verdict.json      what was decided, and the removed intervals
 ```
 
@@ -235,7 +244,7 @@ You only ever paste the RSS URL; the feed carries the other links.
 | Endpoint | Returns |
 |---|---|
 | `/rss?feed=…` | The publisher's feed, byte for byte, with each episode's audio link — and its chapter and transcript links, where the feed declares the podcast namespace — pointing here. |
-| `/podcast?feed=…&guid=…` | The episode's MP3; produces it on the first request. `HEAD` and single byte ranges are answered. |
+| `/podcast?feed=…&guid=…` | The episode's MP3; produces it on the first request. `HEAD` and single byte ranges are answered. A service that downloads episodes to transcribe them never starts the paid work: it gets the episode if a listener's play has produced it, and is redirected to the publisher's own audio otherwise. |
 | `/chapters?feed=…&guid=…` | Chapter marks as JSON. |
 | `/transcript?feed=…&guid=…` | Transcript as WebVTT. |
 
@@ -270,6 +279,31 @@ against different bytes; if the publisher serves the same audio to both clients,
 nothing to measure and it says so. It reads the episode's directory from `var/episodes`,
 or from `PODCLEANER_STORE_ROOT` — point that at a copy or mount of the compose volume.
 
+Not every publisher has an ad-free master to compare with: Megaphone stitches advertising
+into what every client gets, and anew on every fetch. And `./run verify` judges one cut
+after it was served. A change to how advertising is found is judged before it ships, by
+`./run eval`: the real server and the real model, three runs each, over episodes from
+different shows whose advertising is labelled, so a change made for one bad episode
+cannot quietly break the others. Nothing is heard again and no audio is kept: the
+server runs on silence as long as the episode, and a stand-in transcriber answers with the
+`heard.json` the live server kept. An eval pays only for the model, a few cents.
+
+```
+$ ./run eval
+...
+hot-split-happens      run 1  FAIL  cut     removed  232.4 s  (118 s)
+    ad partly in   0:00.0-1:28.3  3.0 s at the start, 40.3 s at the end  pre-roll: trailers for …
+    ad partly in   52:16.0-54:13.0  54.7 s at the start, 32.1 s at the end  trailers: Pivot live tour, …
+...
+hot-split-happens      0/3 runs pass  -- ad missed in 3, edges in 3
+```
+
+A run passes with no programme cut, no labelled break missed, and no more than a few
+seconds of a break left at either edge. The cases live under `var/eval/cases/`, never
+committed. An episode that came out badly becomes one with
+`./run eval --add <case> <feed> <guid>`; `./run eval --transcript <case>` prints it to
+label its advertising from.
+
 ## Development
 
 The server is Go; the suite and the tools are Python 3.11+. The suite starts the real
@@ -299,6 +333,7 @@ commands:
 ./run serve                     the server, in the image ./run build made, on the host's network
 ./run health [feed url]         is a ./run serve deployment working
 ./run verify <feed> <guid>      was a cut right (above)
+./run eval [case …]             does a change still find the ads and spare the programme (above)
 ./run save                      green suite, then stage everything
 ```
 

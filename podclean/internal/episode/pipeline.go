@@ -3,6 +3,7 @@ package episode
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"podclean/internal/classify"
 	"podclean/internal/mp3"
@@ -77,8 +78,8 @@ func (o *Orchestrator) fetch(url string) ([]byte, error) {
 }
 
 // checkAudio is the question the cutter asks, asked first: do these bytes parse as MP3
-// frames? What is published is audio the publisher sent, not whatever their server
-// answered with. A block page carrying an episode's content type and its own length is a
+// frames? What is published is made of audio the publisher sent, not of whatever their
+// server answered with. A block page carrying an episode's content type and its own length is a
 // failure however it describes itself.
 func checkAudio(url string, raw []byte) (*mp3.File, error) {
 	file, err := mp3.Parse(raw)
@@ -146,17 +147,56 @@ func (o *Orchestrator) findAds(source store.Source, text *transcript.Transcript)
 }
 
 // render is what the listener gets from a decision: the audio, cut only when the plan
-// says cut and then with the chapters written into it too, and the chapter marks and
-// transcript moved onto the served timeline. Clean and refused serve the publisher's
-// bytes as they came, with both sidecars.
+// says cut and then with a tone where each cut is and the chapters written into it too,
+// and the chapter marks and transcript moved onto the served timeline. Clean and refused
+// serve the publisher's bytes as they came, with both sidecars.
 func render(r result) (audio []byte, chapters []timeline.Chapter, vtt string) {
 	line := r.plan.Timeline()
+	cue := r.file.Cue()
+	line.Cue = cue.Seconds()
 	chapters = line.Chapters(plan.Chapters(r.text, r.reply.Chapters))
 	audio = r.raw
 	if r.plan.State == "cut" {
-		audio = append(mp3.ChapterTag(chapters, r.file.Seconds()-line.Total()), r.file.Cut(line)...)
+		if cue.Seconds() == 0 {
+			log.Printf("no cue for an episode in format %+v: cut without one", r.file.Format())
+		}
+		audio = append(mp3.ChapterTag(chapters, line.Served(r.file.Seconds())), r.file.Cut(line, cue)...)
 	}
 	return audio, chapters, r.text.VTT(line)
+}
+
+// heardJSON is the transcript as the models and the cutter had it: on the publisher's
+// timeline, every cue numbered as the model was shown it, with its words.
+//
+// Kept for every episode that got as far as a transcript, whatever happened after, so
+// that what the model was asked about can be read back -- and an episode labelled for
+// `./run eval` -- without paying for the audio to be heard again.
+func heardJSON(text *transcript.Transcript, seconds float64) []byte {
+	type word struct {
+		Start float64 `json:"start"`
+		End   float64 `json:"end"`
+		Text  string  `json:"text"`
+	}
+	type cue struct {
+		Cue   int     `json:"cue"`
+		Start float64 `json:"start"`
+		End   float64 `json:"end"`
+		Text  string  `json:"text"`
+		Words []word  `json:"words"`
+	}
+	doc := struct {
+		Seconds float64 `json:"duration_seconds"`
+		Cues    []cue   `json:"cues"`
+	}{Seconds: round(seconds), Cues: make([]cue, 0, len(text.Cues))}
+	for _, c := range text.Cues {
+		words := make([]word, 0, len(c.Words))
+		for _, w := range c.Words {
+			words = append(words, word{round(w.Start), round(w.End), w.Text})
+		}
+		doc.Cues = append(doc.Cues, cue{c.Index, round(c.Start), round(c.End), c.Text, words})
+	}
+	body, _ := json.Marshal(doc) // numbers and strings: it cannot fail
+	return body
 }
 
 // chaptersJSON is the chapters sidecar, in the podcast namespace's own format. Seconds,

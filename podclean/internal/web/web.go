@@ -58,13 +58,43 @@ func (s *Server) rss(w http.ResponseWriter, r *http.Request) {
 	body(w, r, http.StatusOK, rewritten)
 }
 
+// transcriptionCrawlers is what the services call themselves that download episodes to
+// transcribe them rather than to be listened to.
+//
+// Overcast's walked five feeds' whole back catalogues on 2026-10-16: 227 first plays in a
+// day, every one fetched, transcribed, classified and kept -- most of a week's spend, and a
+// full disk that took the server down. So it starts nothing: an episode a listener has
+// already paid for, it gets as produced; any other, it is sent to the publisher's own audio
+// for. Its transcript of that one then has the advertising in and drifts against the cut
+// file a listener plays -- the price of not paying for every episode it walks past.
+var transcriptionCrawlers = []string{"Overcast Transcription Service"}
+
+func transcriptionCrawler(agent string) bool {
+	for _, name := range transcriptionCrawlers {
+		if strings.Contains(agent, name) {
+			return true
+		}
+	}
+	return false
+}
+
 // podcast is the episode's audio, produced on the first play and read from disk after.
 func (s *Server) podcast(w http.ResponseWriter, r *http.Request) {
 	feedURL, guid, ok := pair(w, r)
 	if !ok {
 		return
 	}
-	audio, err := s.Episodes.Play(feedURL, guid)
+	var audio episode.Audio
+	var err error
+	if transcriptionCrawler(r.UserAgent()) {
+		var origin string
+		if audio, origin, err = s.Episodes.Existing(feedURL, guid); err == nil && origin != "" {
+			http.Redirect(w, r, origin, http.StatusFound)
+			return
+		}
+	} else {
+		audio, err = s.Episodes.Play(feedURL, guid)
+	}
 	switch {
 	case errors.Is(err, episode.ErrUnknown):
 		text(w, r, http.StatusNotFound, unknownEpisode)

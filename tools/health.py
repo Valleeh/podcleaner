@@ -60,7 +60,9 @@ def source_digest() -> str:
     """
     h = hashlib.sha256()
     for f in sorted((ROOT / "podclean").rglob("*")):
-        if f.is_file() and (f.suffix == ".go" or f.name == "go.mod"):
+        # .mp3 is the cue the server embeds (internal/mp3/cue): built into the binary, so
+        # an image with an old tone is an image built from other sources.
+        if f.is_file() and (f.suffix in (".go", ".mp3") or f.name == "go.mod"):
             h.update(f"{hashlib.sha256(f.read_bytes()).hexdigest()}  "
                      f"{f.relative_to(ROOT)}\n".encode())
     return h.hexdigest()

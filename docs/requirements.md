@@ -14,8 +14,9 @@ asserted* means exactly that: a test is written when it would have caught a bug.
 **1.** No second of programme is ever removed. Everything else gives way to this: where it
 is not certain that a stretch is advertising, it stays, and a refusal is never worse for
 the listener than doing nothing.
-*Asserted by* `./run verify` against the publisher's own ad-free master. The suite plays
-an episode of silence and can only check the arithmetic.
+*Asserted by* `./run verify` against the publisher's own ad-free master, and by
+`./run eval` over episodes whose advertising is known, before a change ships. The suite
+plays an episode of silence and can only check the arithmetic.
 
 ## Subscribing
 
@@ -53,13 +54,19 @@ unchanged.
 ## Playing
 
 **9.** The audio returned is the publisher's own with the advertising breaks missing, but
-for a moment at each edge, and nothing else altered.
+for a moment at each edge, and nothing else altered but the tone that marks each cut (43).
 *Asserted by* `test_a_listener_subscribes_and_plays_one_episode`; that the bytes are the
 publisher's, by `./run verify`.
 
-**10.** The file decodes to the length it started at, minus exactly what was removed.
+**10.** The file decodes to the length it started at, minus exactly what was removed,
+plus the tone that marks each cut.
 *Asserted by* `test_a_listener_subscribes_and_plays_one_episode`, with a decoder that
 shares no code with the server.
+
+**43.** Every cut is marked by a short tone the listener hears where the cut is, and
+nowhere else -- in every audio format the server has the tone in; in any other, the cut is
+made without one.
+*Asserted by* `test_every_cut_is_marked_by_a_tone_heard_there_and_nowhere_else`.
 
 **11.** Every cut begins and ends inside advertising, and some of each break stays
 audible at both of its edges.
@@ -117,8 +124,8 @@ cannot be the episode without its spots is not used.
 chapter marks land where they would have.
 *Asserted by* `test_an_episode_too_big_for_one_transcription_request_is_cut_all_the_same`.
 
-**15.** What is published is audio the publisher sent, not whatever their server answered
-with. A reply that is not audio is a failure however it describes itself; nothing is paid
+**15.** What is published is audio the publisher sent -- with this server's own tone at each
+cut -- not whatever their server answered with. A reply that is not audio is a failure however it describes itself; nothing is paid
 for on its behalf and nothing is kept.
 *Asserted by* `test_a_publisher_that_answers_with_something_that_is_not_audio_is_refused`.
 
@@ -192,6 +199,11 @@ reply that could not be read.
 narrowed to the cues there are.
 *Asserted by* `test_a_break_named_by_a_cue_the_transcript_never_had_is_left_in`.
 
+**41.** The show's own hosts plugging their own things are left in; somebody else plugging
+their own show is cut, even when the model calls it the hosts' own; and a plug nobody is
+named in is left in.
+*Asserted by* `test_a_plug_for_somebody_elses_show_is_cut_even_when_called_the_hosts_own`.
+
 **31.** A plan that is not believable as a whole leaves the whole episode untouched: one
 break implausibly long, or breaks adding up to an implausible share of the episode.
 *Asserted by* `test_a_break_that_would_swallow_most_of_the_episode_is_not_cut`, whose one
@@ -239,6 +251,11 @@ else.
 
 **40.** Nothing but the first play of an episode a feed has named starts paid work.
 *Asserted by* every test in `test_the_routes.py`.
+
+**42.** A service that downloads episodes to transcribe them is not a listener: nothing is
+fetched or paid for on its behalf. An episode not yet produced, it is sent to the
+publisher's own audio for; one a listener has played, it gets as produced.
+*Asserted by* `test_a_crawler_that_transcribes_episodes_is_sent_to_the_publisher_and_starts_nothing`.
 
 ## What has no test yet
 

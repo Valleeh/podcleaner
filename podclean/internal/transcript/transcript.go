@@ -282,7 +282,8 @@ func (t *Transcript) Render() string {
 }
 
 // VTT is the transcript of the audio that was served: every cue that touched removed
-// audio dropped whole, the rest moved by exactly what was removed before them.
+// audio dropped whole, the rest moved as the timeline moves them -- by exactly what was
+// removed before them, less the tone each of those cuts left.
 //
 // Dropped whole rather than trimmed, which leaves a few seconds either side of a join
 // with audio and no text. Trimming would leave a line claiming words that are not in the

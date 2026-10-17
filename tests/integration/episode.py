@@ -60,6 +60,11 @@ from tests.integration.support import ffmpeg
 #: sits is measured by `./run verify`, against the publisher's own master.
 MARGIN_SECONDS = 1.5
 
+#: How long the tone is that marks every cut in an episode like this one: `README.md`,
+#: "every cut is marked by a short double beep, 0.34 s at 44.1 kHz".  Declared, not
+#: imported -- thirteen MP3 frames at this episode's sample rate.
+CUE_SECONDS = 13 * 1152 / 44100
+
 #: A word of speech, and a cue's worth of them.  The real reply for this episode had 266
 #: cues and 11,582 words over 73 minutes; this is the same cue length at a slower mouth.
 WORD_SECONDS = 1.3
@@ -175,17 +180,31 @@ def removed(breaks: Sequence[Break], before: float = float("inf")) -> float:
     """The seconds the cuts for these breaks take out, counting only breaks that begin
     before ``before``.
 
-    The union, not the sum: two reads back to back share a cue, so the first cut runs to
-    that cue's end and the second begins inside it, and what the listener loses is the
-    overlap once.
+    The union, not the sum: cuts that overlap lose their overlap once.
     """
-    total, reach = 0.0, float("-inf")
+    return sum(end - start for start, end in cuts(breaks, before))
+
+
+def cuts(breaks: Sequence[Break], before: float = float("inf")) -> List[Tuple[float, float]]:
+    """The cuts these breaks make, as the listener meets them: overlapping ones as one.
+
+    One cut, one tone: the server merges cuts that touch or overlap before it cuts, so a
+    stretch cut as one is marked once, where it begins.  (The two reads here stop short of
+    each other by both margins, and are two cuts.)
+    """
+    joined: List[Tuple[float, float]] = []
     for start, end in sorted(b.cut for b in breaks if b.start < before):
-        start = max(start, reach)
-        if end > start:
-            total += end - start
-            reach = end
-    return total
+        if joined and start <= joined[-1][1]:
+            joined[-1] = (joined[-1][0], max(joined[-1][1], end))
+        else:
+            joined.append((start, end))
+    return joined
+
+
+def shorter_by(breaks: Sequence[Break], before: float = float("inf")) -> float:
+    """How much shorter the served audio is up to ``before``: what the cuts take out, less
+    the tone each of them leaves in its place."""
+    return removed(breaks, before) - CUE_SECONDS * len(cuts(breaks, before))
 
 
 @dataclass(frozen=True)
