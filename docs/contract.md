@@ -277,7 +277,8 @@ whole was not believable), `failed` (a stage did not finish). Only `failed` is r
 * **The cue** (`cue.go`, `cue/make.sh`): once per cut, before the first frame whose start
   lies at or after the cut's start (after the last frame for a cut that starts later), a
   run of embedded frames: a double beep at 880 Hz, two 0.12 s beeps 0.06 s apart, at
-  -18 dBFS, encoded at 32 kbps with libmp3lame, no bit reservoir, no ID3, no Xing. One
+  -26 dBFS peak with 20 ms ramps -- about -29 LUFS, some 12 LU under the episodes it
+  marks -- encoded at 32 kbps with libmp3lame, no bit reservoir, no ID3, no Xing. One
   file per (MPEG version, sample rate, mono or not) — 44.1/48/32 kHz stereo and 44.1 kHz
   mono, MPEG 1 — chosen by the format most of the episode's frames are in (not the
   first frame's: a spot stitched in at the front may be encoded differently); none

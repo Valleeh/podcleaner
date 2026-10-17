@@ -6,12 +6,15 @@
 # no ID3 tag, no Xing/Info frame, and no bit reservoir, so no frame of it reaches back into
 # a frame before it -- spliced between two of the publisher's, it decodes on its own.
 #
-# The tone: two short beeps at 880 Hz, 0.12 s each with 0.06 s between, at -18 dBFS with
-# 10 ms ramps so neither clicks. Clearly a marker, not part of anybody's programme.
+# The tone: two short beeps at 880 Hz, 0.12 s each with 0.06 s between, at -26 dBFS peak
+# with 20 ms ramps so neither clicks. Clearly a marker, not part of anybody's programme --
+# and not loud: about -29 LUFS while it sounds, some 12 LU under the episodes it marks
+# (they measured -15.6 to -18.7 LUFS on 2026-10-17). At -18 dBFS it was under 5 LU below
+# them, and the owner asked for it not to be loud.
 set -euo pipefail
 cd "$(dirname "$0")"
 IMAGE=${PODCLEAN_TEST_FFMPEG_IMAGE:-podclean-ffmpeg:ci}
-TONE='0.125*sin(2*PI*880*t)*(clip(min(t/0.01\,(0.12-t)/0.01)\,0\,1)+clip(min((t-0.18)/0.01\,(0.30-t)/0.01)\,0\,1))'
+TONE='0.05*sin(2*PI*880*t)*(clip(min(t/0.02\,(0.12-t)/0.02)\,0\,1)+clip(min((t-0.18)/0.02\,(0.30-t)/0.02)\,0\,1))'
 
 for format in 44100:2 48000:2 32000:2 44100:1; do
   rate=${format%:*} channels=${format#*:}
