@@ -3,6 +3,7 @@ package episode
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"podclean/internal/classify"
 	"podclean/internal/mp3"
@@ -77,8 +78,8 @@ func (o *Orchestrator) fetch(url string) ([]byte, error) {
 }
 
 // checkAudio is the question the cutter asks, asked first: do these bytes parse as MP3
-// frames? What is published is audio the publisher sent, not whatever their server
-// answered with. A block page carrying an episode's content type and its own length is a
+// frames? What is published is made of audio the publisher sent, not of whatever their
+// server answered with. A block page carrying an episode's content type and its own length is a
 // failure however it describes itself.
 func checkAudio(url string, raw []byte) (*mp3.File, error) {
 	file, err := mp3.Parse(raw)
@@ -146,15 +147,20 @@ func (o *Orchestrator) findAds(source store.Source, text *transcript.Transcript)
 }
 
 // render is what the listener gets from a decision: the audio, cut only when the plan
-// says cut and then with the chapters written into it too, and the chapter marks and
-// transcript moved onto the served timeline. Clean and refused serve the publisher's
-// bytes as they came, with both sidecars.
+// says cut and then with a tone where each cut is and the chapters written into it too,
+// and the chapter marks and transcript moved onto the served timeline. Clean and refused
+// serve the publisher's bytes as they came, with both sidecars.
 func render(r result) (audio []byte, chapters []timeline.Chapter, vtt string) {
 	line := r.plan.Timeline()
+	cue := r.file.Cue()
+	line.Cue = cue.Seconds()
 	chapters = line.Chapters(plan.Chapters(r.text, r.reply.Chapters))
 	audio = r.raw
 	if r.plan.State == "cut" {
-		audio = append(mp3.ChapterTag(chapters, r.file.Seconds()-line.Total()), r.file.Cut(line)...)
+		if cue.Seconds() == 0 {
+			log.Printf("no cue for an episode in format %+v: cut without one", r.file.Format())
+		}
+		audio = append(mp3.ChapterTag(chapters, line.Served(r.file.Seconds())), r.file.Cut(line, cue)...)
 	}
 	return audio, chapters, r.text.VTT(line)
 }

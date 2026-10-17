@@ -1,10 +1,11 @@
 // Package mp3 is every byte-level thing done to an episode: walking it into frames,
 // splitting it for the transcriber, and cutting it.
 //
-// Nothing here re-encodes and nothing shells out. A cut is whole frames left out, so the
-// bytes served are the publisher's own and a replay is byte-identical by construction
-// rather than by caching -- and the server needs no ffmpeg, which is why it fits on the
-// host at all.
+// Nothing here re-encodes and nothing shells out. A cut is whole frames left out, with a
+// short tone put in where they were -- frames encoded once, offline, and embedded (cue.go)
+// -- so every other byte served is the publisher's own and a replay is byte-identical by
+// construction rather than by caching. The server needs no ffmpeg, which is why it fits
+// on the host at all.
 package mp3
 
 import (
@@ -114,17 +115,28 @@ func (f *File) pieces(from, end, maxBytes int) []Piece {
 	return pieces
 }
 
-// Cut is the episode with every frame whose *start* lies in a removed span left out.
+// Cut is the episode with every frame whose *start* lies in a removed span left out, and
+// the cue put in once where each span begins.
 //
 // Its start, half open at the end, so a cut lands on a frame edge -- 26 ms at 44.1 kHz --
-// and every byte that comes back is one the publisher sent.
-func (f *File) Cut(tl timeline.Timeline) []byte {
-	out := make([]byte, 0, len(f.data))
+// and every byte that comes back is one the publisher sent, or the cue's. One cue per
+// span, whether or not the span held the start of a frame, so the audio and the timeline,
+// which counts the same spans, cannot disagree about where the tones are.
+func (f *File) Cut(tl timeline.Timeline, cue Cue) []byte {
+	out := make([]byte, 0, len(f.data)+len(tl.Removed)*len(cue.frames))
+	next := 0
 	for i, fr := range f.frames {
+		for next < len(tl.Removed) && tl.Removed[next].Start <= f.starts[i] {
+			out = append(out, cue.frames...)
+			next++
+		}
 		if tl.Holds(f.starts[i]) {
 			continue
 		}
 		out = append(out, f.data[fr.Offset:fr.Offset+fr.Length]...)
+	}
+	for ; next < len(tl.Removed); next++ {
+		out = append(out, cue.frames...)
 	}
 	return out
 }
@@ -212,6 +224,17 @@ func syncsafe(b []byte) int {
 type frameHeader struct {
 	length  int
 	seconds float64
+	format  Format
+}
+
+// A Format is what has to match for frames from elsewhere to sit in an episode: the MPEG
+// version, the sample rate and mono or not. The bitrate does not -- every frame says its
+// own -- but it is kept, so that inserted frames can say the episode's.
+type Format struct {
+	Version      byte // header bits: 3 = MPEG 1, 2 = MPEG 2, 0 = MPEG 2.5
+	Rate         int
+	Mono         bool
+	BitrateIndex byte
 }
 
 var (
@@ -254,5 +277,6 @@ func header(b []byte) (frameHeader, bool) {
 	if length < 4 {
 		return frameHeader{}, false
 	}
-	return frameHeader{length: length, seconds: float64(samples) / float64(rate)}, true
+	return frameHeader{length: length, seconds: float64(samples) / float64(rate), format: Format{
+		Version: version, Rate: rate, Mono: b[3]>>6 == 3, BitrateIndex: bitrateIndex}}, true
 }

@@ -273,7 +273,26 @@ whole was not believable), `failed` (a stage did not finish). Only `failed` is r
   describe the file before the cut.
 * A frame is removed when **its start** lies in a cut, half open at the end. So a cut
   lands on a frame edge — 26 ms at 44.1 kHz — and everything served is the publisher's
-  own bytes. A replay is byte-identical by construction.
+  own bytes but the cue and the chapter tag. A replay is byte-identical by construction.
+* **The cue** (`cue.go`, `cue/make.sh`): once per cut, before the first frame whose start
+  lies at or after the cut's start (after the last frame for a cut that starts later), a
+  run of embedded frames: a double beep at 880 Hz, two 0.12 s beeps 0.06 s apart, at
+  -18 dBFS, encoded at 32 kbps with libmp3lame, no bit reservoir, no ID3, no Xing. One
+  file per (MPEG version, sample rate, mono or not) — 44.1/48/32 kHz stereo and 44.1 kHz
+  mono, MPEG 1 — chosen by the format most of the episode's frames are in (not the
+  first frame's: a spot stitched in at the front may be encoded differently); none
+  matching, the cut has no cue and the log says so. Each cue frame's bitrate index is
+  rewritten to the one most of those frames say and its padding bit cleared, so a
+  constant-bitrate episode stays one; a cue is never written below its own 32 kbps. The
+  bytes that adds are **0xFF, never zero**: the publisher's frame after the cue reads up
+  to 511 bytes back into them through the bit reservoir, and zeros decode as the loudest
+  Huffman values (cracks up to 20 dB over full scale after most cues on 96 kbps
+  episodes), where 0xFF decodes as silence and cannot pass for a header (bitrate index
+  15). Its length is its frames': 13 at 44.1 kHz, 0.3396 s.
+* The served timeline (`internal/timeline`) moves every later moment by the cue once per
+  cut before it, as well as earlier by the audio removed: the chapter marks, the
+  transcript and the ID3 chapter tag are on it. `verdict.json` (`removed`,
+  `removed_seconds`) and `heard.json` stay on the publisher's timeline.
 * The duration of the episode is the sum of the frame durations, not anything a header
   claims. Whether a reply is audio at all is the same question: the bytes must parse as
   at least the minimum above of MP3 frames, or it is not an episode however it describes
@@ -292,7 +311,7 @@ port that changes it silently breaks the one tool that can prove the one rule.
 | file | written | what it is |
 |---|---|---|
 | `source.json` | when a feed names the episode | `{"url": <publisher enclosure>, "feed": <feed url>, "chapters_url": <publisher's marks or null>, "language": <two letters, absent when the feed names none>}`. Its presence is what makes an episode playable: no `source.json`, 404, and nothing goes out. |
-| `audio.mp3` | first play | when cut: the ID3 chapter tag (only if there are marks), then the kept frames — the publisher's own tag, Xing/Info frame and any bytes between frames are gone. Otherwise the publisher's bytes exactly as fetched. |
+| `audio.mp3` | first play | when cut: the ID3 chapter tag (only if there are marks), then the kept frames with the cue's frames before the first kept frame at or after each cut's start (see the cue, above) — the publisher's own tag, Xing/Info frame and any bytes between frames are gone. Otherwise the publisher's bytes exactly as fetched. |
 | `chapters.json` | first play | the marks on the served timeline |
 | `transcript.vtt` | first play | the transcript on the served timeline |
 | `heard.json` | first play, whenever the transcript was finished, first | the transcript the models and the cutter had, on the publisher's timeline: `{"duration_seconds", "cues": [{"cue", "start", "end", "text", "words": [{"start", "end", "text"}]}]}`, `cue` numbered as the model was shown it. For reading back what the model was asked about, and for labelling an episode for `./run eval`, without paying for it to be heard again. |
@@ -309,7 +328,7 @@ audio, is answered 502.
 joined with `; `, on a `cut` verdict too), `model_spec` (the configured spec, whether or
 not a model answered), `proposed` as `[{start_cue, end_cue, category, confidence}]`,
 `proposed_count`, `cues`, `duration_seconds`, `removed_seconds`, `removed` as
-`[[start, end], ...]`, `chapters` as `[[at, title], ...]`, and `source_sha256` over the
+`[[start, end], ...]`, `chapters` as `[[at, title], ...]` on the served timeline (cues and all, unlike `removed`), and `source_sha256` over the
 bytes that were fetched — what `./run verify` uses to notice that the publisher has
 re-stitched the episode since, in which case it refuses to compare. Every seconds value is
 rounded to three decimals.
@@ -361,7 +380,8 @@ because Overcast displays chapter marks from the file and ignores the feed's lin
 Apple Podcasts reads the file first.
 
 **Both timelines** are the same arithmetic in one place (`internal/timeline`), so the two
-cannot disagree: every time is moved earlier by exactly the audio removed before it. A
+cannot disagree: every time is moved earlier by exactly the audio removed before it, and
+later by the cue each of those cuts left in its place. A
 transcript line that overlaps a cut at all is dropped whole rather than trimmed, and a
 chapter mark whose moment was removed — inside a cut, which is the break less its
 margins, not merely inside the break the model reported — is dropped rather than moved to
@@ -400,7 +420,7 @@ nothing to measure and it says so.
 
 `tools/health.py` knows the `./run serve` deployment: it checks that its `docker run` is
 running, that the image's `org.podclean.source` label equals a sha256 over
-`podclean/**/*.go` and `go.mod` — a port in another language has to change that filter or
+`podclean/**/*.go`, the embedded cue `podclean/**/*.mp3` and `go.mod` — a port in another language has to change that filter or
 the check proves nothing — and that a container of that image is up; that the server
 answers locally; that the public address, read from that process's environment, answers;
 that a feed named on the command line still comes back rewritten (without one the check

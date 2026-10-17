@@ -11,8 +11,9 @@ __pycache__/
 var/
 *.log
 
-# Media (never commit audio)
+# Media (never commit audio) -- but the server's own cut cue, a tone it embeds
 *.mp3
+!podclean/internal/mp3/cue/*.mp3
 *.wav
 *.m4a
 *.flac

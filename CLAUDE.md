@@ -64,8 +64,10 @@ There is no `python` and no `make` on this host. Use `./run`.
                      # and then Go, and the suite did not change either time. The contract
                      # is the docstring of tests/integration/support.py.
     ./run build      # build the image the server runs in. The binary is compiled into
-                     # it, so every .go edit needs this before a restart -- ./run health
-                     # tells you which of the two you are missing.
+                     # it, so every .go edit -- and every regenerated cut cue,
+                     # podclean/internal/mp3/cue/*.mp3, which it embeds -- needs this
+                     # before a restart; ./run health tells you which of the two you are
+                     # missing.
     ./run serve      # run the server, in that image, on the host's network
     ./run save       # green suite, then stage everything
 
@@ -97,7 +99,8 @@ There is no `ffmpeg`, `ffprobe` or `python` on `PATH`; ffmpeg runs only inside t
 `whisper-cpp:local`, which is the Debian 12 ffmpeg CI builds). The **suite** runs
 it, to build the episode it plays and to measure what came back; `PODCLEAN_TEST_FFMPEG_IMAGE`
 points it elsewhere. The server does not: it cuts by leaving whole MP3 frames out, in
-process. One heavy job at a time; three background jobs were already killed here for
+process, and puts in the tone that marks each cut from frames it embeds. Those were
+made once with the same image by `podclean/internal/mp3/cue/make.sh`, run by hand. One heavy job at a time; three background jobs were already killed here for
 memory.
 
 ## Never commit

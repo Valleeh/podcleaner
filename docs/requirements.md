@@ -54,13 +54,19 @@ unchanged.
 ## Playing
 
 **9.** The audio returned is the publisher's own with the advertising breaks missing, but
-for a moment at each edge, and nothing else altered.
+for a moment at each edge, and nothing else altered but the tone that marks each cut (43).
 *Asserted by* `test_a_listener_subscribes_and_plays_one_episode`; that the bytes are the
 publisher's, by `./run verify`.
 
-**10.** The file decodes to the length it started at, minus exactly what was removed.
+**10.** The file decodes to the length it started at, minus exactly what was removed,
+plus the tone that marks each cut.
 *Asserted by* `test_a_listener_subscribes_and_plays_one_episode`, with a decoder that
 shares no code with the server.
+
+**43.** Every cut is marked by a short tone the listener hears where the cut is, and
+nowhere else -- in every audio format the server has the tone in; in any other, the cut is
+made without one.
+*Asserted by* `test_every_cut_is_marked_by_a_tone_heard_there_and_nowhere_else`.
 
 **11.** Every cut begins and ends inside advertising, and some of each break stays
 audible at both of its edges.
@@ -118,8 +124,8 @@ cannot be the episode without its spots is not used.
 chapter marks land where they would have.
 *Asserted by* `test_an_episode_too_big_for_one_transcription_request_is_cut_all_the_same`.
 
-**15.** What is published is audio the publisher sent, not whatever their server answered
-with. A reply that is not audio is a failure however it describes itself; nothing is paid
+**15.** What is published is audio the publisher sent -- with this server's own tone at each
+cut -- not whatever their server answered with. A reply that is not audio is a failure however it describes itself; nothing is paid
 for on its behalf and nothing is kept.
 *Asserted by* `test_a_publisher_that_answers_with_something_that_is_not_audio_is_refused`.
 
