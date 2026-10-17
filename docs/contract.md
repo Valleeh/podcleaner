@@ -325,7 +325,7 @@ a parameter it needs is missing or blank.
 | | |
 |---|---|
 | `GET /rss?feed=` | 200 `application/rss+xml`; 502 with the publisher's failure text |
-| `GET /podcast?feed=&guid=` | 200 `audio/mpeg`, **no charset**; 206 with `content-range` for a range; 404 for an episode no feed has named; 502 if the publisher failed |
+| `GET /podcast?feed=&guid=` | 200 `audio/mpeg`, **no charset**; 206 with `content-range` for a range; 404 for an episode no feed has named; 502 if the publisher failed. A `user-agent` containing `Overcast Transcription Service` (`web.transcriptionCrawlers`) never starts the pipeline: the produced audio if there is one, otherwise 302 to the publisher's enclosure as the feed named it |
 | `GET /chapters?feed=&guid=` | 200 `application/json+chapters`; 404 until the document exists |
 | `GET /transcript?feed=&guid=` | 200 `text/vtt`; 404 likewise |
 

@@ -109,3 +109,32 @@ def test_a_publisher_that_answers_with_something_that_is_not_audio_is_refused(ou
         assert "/chat/completions" not in outside.counts()
         assert requests.get(f"{podclean}/podcast", params=episode).status_code == 502
         assert outside.counts()["/episode.mp3"] == 4
+
+
+#: What Overcast's transcription service calls itself, as it reached the live server.
+TRANSCRIPTION_CRAWLER = "Overcast Transcription Service (+http://overcast.fm/; iOS podcast app)"
+
+
+def test_a_crawler_that_transcribes_episodes_is_sent_to_the_publisher_and_starts_nothing(
+        outside, tmp_path):
+    """Overcast's transcription service walked five feeds' whole back catalogues in a day.
+
+    227 first plays on 2026-10-16, every one fetched, transcribed, classified and kept: most
+    of a week's spend, and a full disk by the evening that took the server down with it. It
+    wants the words, which the advertising does not change -- so it is sent to the
+    publisher's own audio, and nothing here is fetched or paid for on its behalf.
+    """
+    outside.serves("/feed.xml", "application/rss+xml", FEED.format(guid=GUID, origin=outside.url))
+    feed = f"{outside.url}/feed.xml"
+    episode = {"feed": feed, "guid": GUID}
+
+    with podclean_server(outside, tmp_path) as podclean:
+        requests.get(f"{podclean}/rss", params={"feed": feed})
+
+        answer = requests.get(f"{podclean}/podcast", params=episode, allow_redirects=False,
+                              headers={"User-Agent": TRANSCRIPTION_CRAWLER})
+        assert answer.status_code == 302
+        assert answer.headers["Location"] == f"{outside.url}/episode.mp3"
+        assert "/episode.mp3" not in outside.counts()
+        assert "/audio/transcriptions" not in outside.counts()
+        assert "/chat/completions" not in outside.counts()

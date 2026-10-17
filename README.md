@@ -236,7 +236,7 @@ You only ever paste the RSS URL; the feed carries the other links.
 | Endpoint | Returns |
 |---|---|
 | `/rss?feed=…` | The publisher's feed, byte for byte, with each episode's audio link — and its chapter and transcript links, where the feed declares the podcast namespace — pointing here. |
-| `/podcast?feed=…&guid=…` | The episode's MP3; produces it on the first request. `HEAD` and single byte ranges are answered. |
+| `/podcast?feed=…&guid=…` | The episode's MP3; produces it on the first request. `HEAD` and single byte ranges are answered. A service that downloads episodes to transcribe them never starts the paid work: it gets the episode if a listener's play has produced it, and is redirected to the publisher's own audio otherwise. |
 | `/chapters?feed=…&guid=…` | Chapter marks as JSON. |
 | `/transcript?feed=…&guid=…` | Transcript as WebVTT. |
 

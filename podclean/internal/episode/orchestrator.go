@@ -96,6 +96,20 @@ func (o *Orchestrator) Play(feed, guid string) (Audio, error) {
 	return o.save(feed, guid, o.pipeline(source))
 }
 
+// Existing is the episode for a caller that must never start paid work: the produced
+// audio when a listener's play has already made it, otherwise the publisher's own address
+// to be sent to instead.
+func (o *Orchestrator) Existing(feed, guid string) (audio Audio, origin string, err error) {
+	source, ok := o.Store.Source(feed, guid)
+	if !ok {
+		return Audio{}, "", ErrUnknown
+	}
+	if audio, ok := o.published(feed, guid); ok {
+		return audio, "", nil
+	}
+	return Audio{}, source.URL, nil
+}
+
 func (o *Orchestrator) published(feed, guid string) (Audio, bool) {
 	if !o.Store.Has(feed, guid, store.AudioFile) {
 		return Audio{}, false

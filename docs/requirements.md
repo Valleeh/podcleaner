@@ -246,6 +246,11 @@ else.
 **40.** Nothing but the first play of an episode a feed has named starts paid work.
 *Asserted by* every test in `test_the_routes.py`.
 
+**42.** A service that downloads episodes to transcribe them is not a listener: nothing is
+fetched or paid for on its behalf. An episode not yet produced, it is sent to the
+publisher's own audio for; one a listener has played, it gets as produced.
+*Asserted by* `test_a_crawler_that_transcribes_episodes_is_sent_to_the_publisher_and_starts_nothing`.
+
 ## What has no test yet
 
 8, 17, 33 and 38; each half of 31 on its own; the dropped-mark half of 36; the
